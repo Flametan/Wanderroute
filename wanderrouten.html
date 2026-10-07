@@ -2267,7 +2267,7 @@ L.control.scale({metric: true, imperial: false}).addTo(map);
 ROUTES.forEach((r, i) => { r.idx = i; r.group = L.layerGroup().addTo(map); r.visible = true; r.gfx = {}; });
 
 /* ---------- Ortsermittlung (Nominatim, Fallback Photon) ---------- */
-const CACHE_KEY = "wr-geocache-v1";
+const CACHE_KEY = "wr-geocache-v2";
 let cache = {};
 try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "{}") || {}; } catch (e) { cache = {}; }
 const saveCache = () => { try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (e) {} };
@@ -2281,7 +2281,7 @@ async function throttle() {
 async function fetchNominatim(q) {
   await throttle();
   const u = "https://nominatim.openstreetmap.org/search?" + new URLSearchParams({
-    q, format: "jsonv2", limit: "8", "accept-language": "de", countrycodes: "at,de,it,ch,li",
+    q, format: "jsonv2", limit: "15", "accept-language": "de", countrycodes: "at,de,it,ch,li",
     viewbox: [ALPS.lngMin, ALPS.latMax, ALPS.lngMax, ALPS.latMin].join(","), bounded: "1"
   });
   const res = await fetch(u);
@@ -2290,7 +2290,7 @@ async function fetchNominatim(q) {
 }
 async function fetchPhoton(q) {
   await throttle();
-  const u = "https://photon.komoot.io/api/?" + new URLSearchParams({q, limit: "8", bbox: [ALPS.lngMin, ALPS.latMin, ALPS.lngMax, ALPS.latMax].join(",")});
+  const u = "https://photon.komoot.io/api/?" + new URLSearchParams({q, limit: "15", bbox: [ALPS.lngMin, ALPS.latMin, ALPS.lngMax, ALPS.latMax].join(",")});
   const res = await fetch(u);
   if (!res.ok) throw new Error("HTTP " + res.status);
   const j = await res.json();
@@ -2305,57 +2305,91 @@ async function search(q) {
   cache[q] = out; saveCache();
   return out;
 }
-/* Mehrere Treffer: der Treffer, der dem zuletzt ermittelten Punkt der Route am nächsten liegt. */
-async function geocode(point, anchor) {
-  for (let qi = 0; qi < point.queries.length; qi++) {
-    const q = point.queries[qi];
+/* Namensprüfung: Der wichtigste Namensbestandteil des Suchbegriffs muss im Namen des Treffers vorkommen
+   (verhindert, dass die Suche irgendeinen unverwandten Ort liefert). */
+const norm = s => String(s).toLowerCase().replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss").replace(/[^a-z0-9 ]/g, "");
+function nameMatches(q, display) {
+  const first = norm(String(display).split(",")[0]).replace(/ /g, "");
+  const toks = norm(q).split(" ").filter(t => t.length >= 4).sort((a, b) => b.length - a.length);
+  return !toks.length || first.includes(toks[0]);
+}
+/* Kandidaten je Ort: erster Suchbegriff mit mindestens einem namensgleichen Treffer. */
+async function candidates(node) {
+  for (let qi = 0; qi < node.queries.length; qi++) {
+    const q = node.queries[qi];
     let list;
     try { list = await search(q); } catch (e) { return {error: "Netzwerkfehler (" + e.message + ")"}; }
-    if (!list.length) continue;
-    let best = list[0];
-    if (anchor) best = list.reduce((a, b) => hav(anchor, b) < hav(anchor, a) ? b : a);
-    return {lat: best.lat, lng: best.lng, display: best.display, kind: best.kind, src: best.src, query: q, qi, hits: list.length};
+    const ok = list.filter(c => nameMatches(q, c.display));
+    if (ok.length) return {list: ok.map((c, rank) => Object.assign({}, c, {query: q, qi, rank, hits: ok.length}))};
   }
-  return {error: "kein Treffer"};
+  return {error: "kein Treffer mit passendem Namen"};
 }
 
-/* ---------- Auflösung aller Punkte ---------- */
+/* ---------- Auflösung: Gesamtoptimierung je Route (Viterbi) ----------
+   Für jeden Ort gibt es mehrere Kandidaten. Gewählt wird die Kombination mit den geringsten Gesamtkosten:
+   - Wanderabschnitt: Entfernung, mit starker Strafe, wenn die Luftlinie länger als die Excel-Strecke ist
+   - Transfer (laut Excel): Entfernung zählt kaum
+   - Übergang zwischen Etappen (Ziel Vortag zu Start): Entfernung zählt wenig
+   - Rang des Treffers und Ersatz-Suchbegriffe kosten etwas */
 const R = {};   /* pid -> Ergebnis */
-const pid = (r, s, i) => `${r.id}.${s.day}.${i}`;
 let totalPts = 0, donePts = 0, running = false;
-ROUTES.forEach(r => r.stages.forEach(s => s.points.forEach((p, i) => { p.pid = pid(r, s, i); })));
-function countTotal() {
-  let n = 0;
-  ROUTES.forEach(r => r.stages.forEach((s, si) => s.points.forEach((p, i) => {
-    const prev = si > 0 ? r.stages[si - 1].points.slice(-1)[0] : null;
-    if (!(i === 0 && prev && prev.label === p.label)) n++;
-  })));
-  return n;
+ROUTES.forEach(r => r.stages.forEach(s => s.points.forEach((p, i) => { p.pid = `${r.id}.${s.day}.${i}`; })));
+function buildChain(r) {
+  const nodes = []; let prev = null;
+  r.stages.forEach(s => s.points.forEach((p, i) => {
+    if (i === 0 && prev && prev.label === p.label) { prev.pids.push(p.pid); prev.trOut = p.tr; return; }
+    const node = {label: p.label, queries: p.queries, pids: [p.pid], trOut: p.tr, cands: [], edgeIn: null};
+    if (prev) node.edgeIn = {kind: i === 0 ? "gap" : (prev.trOut ? "tr" : "walk"), km: s.km};
+    nodes.push(node); prev = node;
+  }));
+  return nodes;
+}
+function edgeCost(e, a, b) {
+  const d = hav(a, b);
+  if (!e) return 0;
+  if (e.kind === "gap") return d * 0.3;
+  if (e.kind === "tr") return d * 0.15;
+  const limit = e.km ? e.km * 1.3 + 1.5 : Infinity;
+  return d + (d > limit ? (d - limit) * 4 : 0);
+}
+function solveChain(nodes) {
+  let acc = null, lastLive = null; const live = [];
+  const rank = {walk: 0, gap: 1, tr: 2};
+  nodes.forEach(n => {
+    if (n.edgeIn) acc = acc ? {kind: rank[n.edgeIn.kind] > rank[acc.kind] ? n.edgeIn.kind : acc.kind, km: Math.max(acc.km || 0, n.edgeIn.km || 0) || null} : n.edgeIn;
+    if (n.cands.length) { n.edge = lastLive ? acc : null; acc = null; lastLive = n; live.push(n); }
+    else if (!lastLive) acc = null;
+  });
+  if (!live.length) return;
+  const cc = c => c.rank * 1.5 + c.qi * 10;
+  let dp = live[0].cands.map(c => cc(c)), back = [];
+  for (let k = 1; k < live.length; k++) {
+    const nd = [], bk = [];
+    live[k].cands.forEach(c => {
+      let best = Infinity, bi = 0;
+      live[k - 1].cands.forEach((pc, j) => { const v = dp[j] + edgeCost(live[k].edge, pc, c); if (v < best) { best = v; bi = j; } });
+      nd.push(best + cc(c)); bk.push(bi);
+    });
+    dp = nd; back.push(bk);
+  }
+  let j = dp.indexOf(Math.min(...dp));
+  for (let k = live.length - 1; k >= 0; k--) { live[k].chosen = live[k].cands[j]; if (k > 0) j = back[k - 1][j]; }
 }
 async function resolveAll() {
-  running = true; donePts = 0; totalPts = countTotal(); updateStatus();
+  running = true; donePts = 0; totalPts = ROUTES.reduce((a, r) => a + buildChain(r).length, 0); updateStatus();
   for (const r of ROUTES) {
-    let anchor = null;
-    for (let si = 0; si < r.stages.length; si++) {
-      const s = r.stages[si];
-      for (let i = 0; i < s.points.length; i++) {
-        const p = s.points[i];
-        const prevStage = si > 0 ? r.stages[si - 1] : null;
-        const prevEnd = prevStage && prevStage.points.length ? prevStage.points[prevStage.points.length - 1] : null;
-        if (i === 0 && prevEnd && prevEnd.label === p.label) {   /* gleicher Ort wie Vortagesziel */
-          const pr = R[prevEnd.pid];
-          R[p.pid] = pr && !pr.error ? Object.assign({}, pr, {reused: true}) : (pr || {error: "kein Treffer"});
-        } else if (FIXED_COORDS[p.pid]) {
-          R[p.pid] = Object.assign({fixed: true, query: "(fest eingetragen)", qi: 0}, FIXED_COORDS[p.pid]); donePts++;
-        } else {
-          R[p.pid] = await geocode(p, anchor); donePts++;
-        }
-        if (R[p.pid] && !R[p.pid].error) anchor = R[p.pid];
-        updateStatus();
-      }
-      renderRoute(r);
+    const nodes = buildChain(r);
+    for (const n of nodes) {
+      const fixed = FIXED_COORDS[n.pids[0]];
+      if (fixed) n.cands = [Object.assign({lat: 0, lng: 0, display: "", kind: "", src: "fest", query: "(fest eingetragen)", qi: 0, rank: 0, hits: 1, fixed: true}, fixed)];
+      else { const c = await candidates(n); if (c.list) n.cands = c.list; else n.err = c.error; }
+      donePts++; updateStatus();
     }
-    renderRoute(r); buildLegend();
+    solveChain(nodes);
+    nodes.forEach(n => n.pids.forEach((id, k) => {
+      R[id] = n.chosen ? Object.assign({}, n.chosen, {reused: k > 0}) : {error: n.err || "kein Treffer"};
+    }));
+    r.stages.forEach(() => {}); renderRoute(r); buildLegend();
   }
   running = false; updateStatus(); fitVisible(); buildQA();
 }
