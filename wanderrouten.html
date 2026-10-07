@@ -1,0 +1,2558 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpenüberquerungen - Routenkarte</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--bg:#f6f5f1;--panel:#fff;--ink:#1d2327;--muted:#5d666d;--line:#dcd9d0;--warn:#a85d00;--warnbg:#fff4e0;--ok:#1d7a46}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+.app{display:grid;grid-template-columns:390px 1fr;height:100vh;height:100dvh}
+#side{overflow-y:auto;background:var(--panel);border-right:1px solid var(--line);padding:14px 16px 24px}
+#map{height:100%;min-height:300px}
+h1{font-size:18px;margin:0 0 4px}
+.lead{color:var(--muted);margin:0 0 12px;font-size:13px}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+button{font:inherit;padding:5px 10px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer;color:var(--ink)}
+button:hover{background:#f0eee7}
+#status{margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#faf9f6;font-size:13px}
+#bar{height:6px;background:#e7e4db;border-radius:3px;margin-top:6px;overflow:hidden}
+#bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .2s}
+.route{border:1px solid var(--line);border-radius:8px;margin:8px 0;overflow:hidden}
+.rhead{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-left:6px solid var(--c)}
+.rhead input{margin-top:4px;width:17px;height:17px;accent-color:var(--c)}
+.rhead .t{flex:1;min-width:0}
+.rhead b{display:block}
+.rhead small{color:var(--muted);display:block}
+.rhead .tog{padding:2px 8px;font-size:12px}
+.stages{display:none;list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.route.open .stages{display:block}
+.stages li{display:flex;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid #eeece5;font-size:13px}
+.stages li:last-child{border-bottom:0}
+.stages li:hover{background:#f6f5f1}
+.stages li.na{cursor:default;color:var(--muted)}
+.stages .n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--c);color:#fff;font-weight:600;font-size:12px;display:grid;place-items:center}
+.stages .w{color:#a85d00;font-size:12px}
+.key{margin:12px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:var(--muted)}
+.key div{display:flex;align-items:center;gap:8px;margin:3px 0}
+.key svg{flex:none}
+details{margin:10px 0;border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px}
+summary{cursor:pointer;font-weight:600}
+details ul{margin:6px 0 0;padding-left:18px}
+.warn{color:var(--warn)}
+.mk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:700 12px system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45)}
+.mk.end{background:var(--c);color:#fff;border:2px solid #fff}
+.mk.goal{border-radius:6px;border:2px solid #fff;outline:2px solid var(--c)}
+.mk.ring{background:#fff;color:var(--c);border:3px solid var(--c);width:20px;height:20px;font-size:11px;margin:2px}
+.mk.start{background:#fff;color:var(--c);border:3px solid var(--c);width:28px;height:28px;margin:-2px}
+.leaflet-popup-content{margin:10px 12px;font-size:13px;line-height:1.4}
+.pop h3{margin:0 0 2px;font-size:15px}
+.pop .sub{color:var(--muted);margin-bottom:6px}
+.pop table{border-collapse:collapse;width:100%}
+.pop td{padding:2px 4px 2px 0;vertical-align:top;border-top:1px solid #eee}
+.pop td:first-child{color:var(--muted);white-space:nowrap;padding-right:8px}
+.pop .w{background:var(--warnbg);color:var(--warn);padding:4px 6px;border-radius:4px;margin-top:6px}
+.pop .geo{font-size:12px;color:var(--muted);margin-top:6px}
+@media (max-width:800px){
+  .app{grid-template-columns:1fr;grid-template-rows:56vh 1fr;grid-template-rows:56dvh 1fr}
+  #map{order:1}
+  #side{order:2;border-right:0;border-top:1px solid var(--line)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside id="side">
+    <h1>Alpenüberquerungen</h1>
+    <p class="lead">Sechs Routenblätter aus der Excel-Datei "Alpenueberquerung_3_Routen_1.xlsx". Etappendaten stammen aus der Excel-Datei. Die Excel-Datei enthält keine Koordinaten: Die Kartenpunkte werden beim Öffnen anhand der Ortsnamen über OpenStreetMap (Nominatim) ermittelt. Alle Linien sind schematisch und zeigen nicht den tatsächlichen Wanderweg.</p>
+    <div id="status"><span id="stxt">Starte ...</span><div id="bar"><i></i></div></div>
+    <div class="btns">
+      <button id="bAll">Alle Routen einblenden</button>
+      <button id="bNone">Alle ausblenden</button>
+      <button id="bFit">Auf sichtbare zoomen</button>
+    </div>
+    <div id="legend"></div>
+    <div class="key">
+      <b style="color:var(--ink)">Zeichenerklärung</b>
+      <div><svg width="40" height="8"><line x1="0" y1="4" x2="40" y2="4" stroke="#444" stroke-width="4" stroke-dasharray="9,6"/></svg>Wanderetappe, schematische Luftlinie</div>
+      <div><svg width="40" height="8"><line x1="0" y1="4" x2="40" y2="4" stroke="#444" stroke-width="3" stroke-dasharray="1,6" stroke-linecap="round"/></svg>Transfer innerhalb der Etappe (Boot, Taxi, Bus, Bahn)</div>
+      <div><svg width="40" height="8"><line x1="0" y1="4" x2="40" y2="4" stroke="#999" stroke-width="2" stroke-dasharray="1,6" stroke-linecap="round"/></svg>Lücke zwischen Etappenende und nächstem Start</div>
+      <div><span class="mk start" style="--c:#444;width:22px;height:22px;font-size:11px">S</span>Start Tag 1</div>
+      <div><span class="mk ring" style="--c:#444">3</span>Start einer Etappe (nur wenn nicht gleich dem Vortagesziel)</div>
+      <div><span class="mk end" style="--c:#444">3</span>Ziel der Etappe (Tag 3); eckig = Ziel der letzten Wanderetappe</div>
+    </div>
+    <details id="qa"><summary>Datenprüfung</summary><div id="qabody"></div></details>
+    <div class="btns">
+      <button id="bExport">Koordinaten als JSON exportieren</button>
+      <button id="bReset">Cache löschen, neu ermitteln</button>
+    </div>
+  </aside>
+  <div id="map"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   DATENMODELL
+   Quelle: Excel-Datei, Blätter "Route 1 Königssee", "Route 1b Königssee indiv.",
+   "Route 2 Oberstdorf", "Route 3 Allgäu-Vinschgau", "Route 4 E5", "Route 5 Garmisch-Sterzing".
+   Pro Etappe (Zeilen 5ff.): day=Tag, text=Etappe, countries=Länder, hours=Gehzeit (h),
+   km=Strecke, up/down=Aufstieg/Abstieg (Hm), overnight=Übernachtung, hut=Hütte?,
+   contact=Kontakt Unterkunft, transfer=Transfer, notes=Hinweise, source=Quelle.
+   null = Zelle in der Excel-Datei leer (nicht angegeben). Die Spalte "Datum" ist überall leer.
+   points = Ortsnamen aus dem Etappentext in Reihenfolge (label) mit Suchbegriffen für die
+   Ortsermittlung (queries). tr=true: Strecke ab diesem Punkt laut Excel per Transfer.
+   KEINE Koordinaten in der Excel-Datei; lat/lng entstehen erst zur Laufzeit (siehe FIXED_COORDS).
+   ============================================================ */
+const ROUTES = [
+ {
+  "id": "1",
+  "label": "Route 1",
+  "name": "Königssee - Steinernes Meer - Großglockner - Drei Zinnen (8 Tage)",
+  "color": "#c0392b",
+  "description": "Start am Königssee an der bayerischen Alpengrenze, Ziel Sextner Dolomiten. 7 Wandertage plus Rückreisetag, 6 von 7 Nächten auf Hütten oder Berggasthöfen. Etappen nach Wilde Alpentouren und Bergschule Watzmann. Nicht ganz ohne Transfers: Boot, mehrere Taxis, eine Seilbahn und ein Linienbus.",
+  "reported": null,
+  "extraNotes": [
+   "Laut Wilde Alpentouren werden die Transfers auf dieser Tour nicht mit öffentlichen Bussen gemacht; zu zweit können sie teuer werden.",
+   "Organisierte Alternative ohne Guide: 'Königssee - Drei Zinnen individuell' bei Wilde Alpentouren, 7 Tage (Preis für Nichtmitglieder 890 EUR)."
+  ],
+  "stages": [
+   {
+    "day": 1,
+    "text": "Königssee - Boot nach St. Bartholomä - Saugasse - Kärlingerhaus (1638 m)",
+    "countries": "DE",
+    "hours": 5,
+    "km": 11,
+    "up": 1100,
+    "down": 100,
+    "overnight": "Kärlingerhaus",
+    "hut": "ja",
+    "contact": "kaerlingerhaus.de",
+    "transfer": "Boot über den Königssee",
+    "notes": "Am Funtensee.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 5,
+    "points": [
+     {
+      "label": "Königssee",
+      "queries": [
+       "Königssee Schönau am Königssee",
+       "Königssee"
+      ],
+      "tr": true
+     },
+     {
+      "label": "St. Bartholomä",
+      "queries": [
+       "St. Bartholomä",
+       "Sankt Bartholomä Königssee"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kärlingerhaus",
+      "queries": [
+       "Kärlingerhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 2,
+    "text": "Kärlingerhaus - Steinernes Meer - Riemannhaus (2177 m) - Maria Alm; Aufstieg Trauner Alm (1522 m)",
+    "countries": "DE → AT",
+    "hours": 6,
+    "km": 12,
+    "up": 600,
+    "down": 1100,
+    "overnight": "Trauner Alm",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "Taxi Maria Alm - Ferleiten (ca. 1 h)",
+    "notes": "Abstieg vom Riemannhaus steil, teils seilversichert; einzige schwarz bewertete Stelle der Tour.",
+    "source": "Bergschule Watzmann, Alpentraversale (berchtesgaden.de)",
+    "travel": false,
+    "row": 6,
+    "points": [
+     {
+      "label": "Kärlingerhaus",
+      "queries": [
+       "Kärlingerhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Riemannhaus",
+      "queries": [
+       "Riemannhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Maria Alm",
+      "queries": [
+       "Maria Alm"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Trauner Alm",
+      "queries": [
+       "Trauner Alm",
+       "Trauneralm",
+       "Ferleiten"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 3,
+    "text": "Trauner Alm - Pfandlscharte (2665 m) - Glocknerhaus (2132 m)",
+    "countries": "AT",
+    "hours": 5,
+    "km": 11.5,
+    "up": 1150,
+    "down": 600,
+    "overnight": "Glocknerhaus",
+    "hut": "ja",
+    "contact": "glocknerhaus.com",
+    "transfer": "-",
+    "notes": "Über Firnflächen und Gletscherreste; im Frühsommer Schneefelder. Blick auf den Großglockner.",
+    "source": "Bergschule Watzmann, Alpentraversale (berchtesgaden.de); Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 7,
+    "points": [
+     {
+      "label": "Trauner Alm",
+      "queries": [
+       "Trauner Alm",
+       "Trauneralm",
+       "Ferleiten"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Pfandlscharte",
+      "queries": [
+       "Pfandlscharte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Glocknerhaus",
+      "queries": [
+       "Glocknerhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 4,
+    "text": "Glocknerhaus - Margaritzenstausee - Leitertal - Glorer Hütte (2642 m) - Lucknerhaus (1918 m)",
+    "countries": "AT",
+    "hours": 6,
+    "km": 15.5,
+    "up": 900,
+    "down": 800,
+    "overnight": "Lucknerhaus (Berggasthof)",
+    "hut": "ja",
+    "contact": "lucknerhaus.at",
+    "transfer": "-",
+    "notes": "Mittagsrast auf der Glorer Hütte.",
+    "source": "Bergschule Watzmann, Alpentraversale (berchtesgaden.de); Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 8,
+    "points": [
+     {
+      "label": "Glocknerhaus",
+      "queries": [
+       "Glocknerhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Margaritzenstausee",
+      "queries": [
+       "Margaritzenstausee"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Glorer Hütte",
+      "queries": [
+       "Glorer Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Lucknerhaus",
+      "queries": [
+       "Lucknerhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 5,
+    "text": "Mooserberg (2360 m) - Villgrater Törl - Villgratental; weiter zur Drei-Schuster-Hütte (1626 m)",
+    "countries": "AT → IT",
+    "hours": 6,
+    "km": 11,
+    "up": 1100,
+    "down": 850,
+    "overnight": "Drei-Schuster-Hütte",
+    "hut": "ja",
+    "contact": "drei-schuster-huette.com",
+    "transfer": "Transfer nach St. Jakob i. D., Seilbahn Mooserberg; Taxibus ins Innerfeldtal, Linienbus zur Hütte",
+    "notes": "Leichtere Variante über das Villgrater Törl. Die Variante über Degenhornsee/Großes Degenhorn ist technisch anspruchsvoller.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 9,
+    "points": [
+     {
+      "label": "Mooserberg",
+      "queries": [
+       "Mooserberg",
+       "Bergstation Mooserberg"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Villgrater Törl",
+      "queries": [
+       "Villgrater Törl"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Drei-Schuster-Hütte",
+      "queries": [
+       "Dreischusterhütte",
+       "Drei-Schuster-Hütte",
+       "Rifugio Tre Scarperi"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 6,
+    "text": "Drei-Schuster-Hütte - Toblinger Knoten - Sextner Stein - Drei Zinnen - Büllelejochhütte (2528 m)",
+    "countries": "IT",
+    "hours": 5.5,
+    "km": 10,
+    "up": 1150,
+    "down": 250,
+    "overnight": "Büllelejochhütte",
+    "hut": "ja",
+    "contact": "rifugiopiandicengia.it",
+    "transfer": "-",
+    "notes": "Kleinste und höchste Hütte der Sextner Dolomiten; wenige Plätze, früh reservieren.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 10,
+    "points": [
+     {
+      "label": "Drei-Schuster-Hütte",
+      "queries": [
+       "Dreischusterhütte",
+       "Drei-Schuster-Hütte",
+       "Rifugio Tre Scarperi"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Toblinger Knoten",
+      "queries": [
+       "Toblinger Knoten"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Drei Zinnen",
+      "queries": [
+       "Drei Zinnen",
+       "Tre Cime di Lavaredo"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Büllelejochhütte",
+      "queries": [
+       "Büllelejochhütte",
+       "Rifugio Pian di Cengia"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 7,
+    "text": "Büllelejochhütte - Obernbacher Joch - Zsigmondyhütte - Fischleintal - Talschlusshütte",
+    "countries": "IT",
+    "hours": 4,
+    "km": 10,
+    "up": 200,
+    "down": 1400,
+    "overnight": "Sexten (Tal)",
+    "hut": "nein",
+    "contact": "Unterkunft im Ort",
+    "transfer": "-",
+    "notes": "Optional bei Sonnenaufgang auf den Rücken des Paternkofels.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 11,
+    "points": [
+     {
+      "label": "Büllelejochhütte",
+      "queries": [
+       "Büllelejochhütte",
+       "Rifugio Pian di Cengia"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Obernbacher Joch",
+      "queries": [
+       "Obernbacher Joch",
+       "Oberbachernjoch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Zsigmondyhütte",
+      "queries": [
+       "Zsigmondyhütte",
+       "Rifugio Zsigmondy Comici"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Fischleintal",
+      "queries": [
+       "Fischleintal"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Talschlusshütte",
+      "queries": [
+       "Talschlusshütte",
+       "Rifugio Fondovalle"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 8,
+    "text": "Rückreise (keine Wanderung)",
+    "countries": "IT → DE",
+    "hours": 0,
+    "km": 0,
+    "up": null,
+    "down": null,
+    "overnight": "-",
+    "hut": "-",
+    "contact": "-",
+    "transfer": "Rückfahrt zum Auto am Königssee im Routenplaner prüfen",
+    "notes": "Beim Veranstalter ist die Rückfahrt nach Berchtesgaden enthalten.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": true,
+    "row": 12,
+    "points": []
+   }
+  ]
+ },
+ {
+  "id": "1b",
+  "label": "Route 1b",
+  "name": "Königssee - Drei Zinnen individuell (7 Tage, Wilde Alpentouren)",
+  "color": "#e6a100",
+  "description": "Selfguided-Paket: Unterkünfte (meist mit Halbpension) und Transfers sind gebucht, GPS-Daten und Notfallnummer inklusive, gewandert wird ohne Guide. Laut Anbieter 6250 Hm Aufstieg, 5600 Hm Abstieg, 78 km. Preis für Nichtmitglieder: 890 EUR. Anbieter: 0049 8364 2379980.",
+  "reported": {
+   "km": 78,
+   "up": 6250,
+   "down": 5600,
+   "source": "Laut Anbieter gesamt"
+  },
+  "extraNotes": [
+   "Laut Anbieter werden die Transfers nicht mit öffentlichen Bussen gemacht; zu zweit kann das teurer werden.",
+   "Unterschied zu Route 1: Zsigmondyhütte statt Büllelejochhütte, ein Tag kürzer."
+  ],
+  "stages": [
+   {
+    "day": 1,
+    "text": "Königssee - Saugasse - Kärlingerhaus (1638 m)",
+    "countries": "DE",
+    "hours": 5,
+    "km": 8,
+    "up": 1100,
+    "down": 100,
+    "overnight": "Kärlingerhaus",
+    "hut": "ja",
+    "contact": "kaerlingerhaus.de",
+    "transfer": "Boot über den Königssee",
+    "notes": "-",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen individuell",
+    "travel": false,
+    "row": 5,
+    "points": [
+     {
+      "label": "Königssee",
+      "queries": [
+       "Königssee Schönau am Königssee",
+       "Königssee"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Saugasse",
+      "queries": [
+       "Saugasse"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kärlingerhaus",
+      "queries": [
+       "Kärlingerhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 2,
+    "text": "Kärlingerhaus - Steinernes Meer - Trauneralm",
+    "countries": "DE → AT",
+    "hours": 6.5,
+    "km": 14,
+    "up": 900,
+    "down": 1250,
+    "overnight": "Trauneralm (Berggasthof)",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "Transfer im Paket organisiert",
+    "notes": "Langer Tag laut Anbieter.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen individuell",
+    "travel": false,
+    "row": 6,
+    "points": [
+     {
+      "label": "Kärlingerhaus",
+      "queries": [
+       "Kärlingerhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Trauneralm",
+      "queries": [
+       "Trauneralm",
+       "Trauner Alm",
+       "Ferleiten"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 3,
+    "text": "Trauneralm - Untere Pfandlscharte - Glocknerhaus (2132 m)",
+    "countries": "AT",
+    "hours": 6,
+    "km": 9,
+    "up": 1250,
+    "down": 650,
+    "overnight": "Glocknerhaus",
+    "hut": "ja",
+    "contact": "glocknerhaus.com",
+    "transfer": "-",
+    "notes": "Teils wegloses Geröll oder Schneefelder, gute Orientierung nötig. Strecke und Abstieg aus der geführten Variante desselben Anbieters.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen individuell; Wilde Alpentouren, Königssee - Drei Zinnen (KDZmG)",
+    "travel": false,
+    "row": 7,
+    "points": [
+     {
+      "label": "Trauneralm",
+      "queries": [
+       "Trauneralm",
+       "Trauner Alm",
+       "Ferleiten"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Untere Pfandlscharte",
+      "queries": [
+       "Untere Pfandlscharte",
+       "Pfandlscharte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Glocknerhaus",
+      "queries": [
+       "Glocknerhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 4,
+    "text": "Glocknerhaus - Glorer Hütte - Lucknerhaus (1918 m)",
+    "countries": "AT",
+    "hours": 6,
+    "km": 15.5,
+    "up": 900,
+    "down": 800,
+    "overnight": "Lucknerhaus (Berggasthof)",
+    "hut": "ja",
+    "contact": "lucknerhaus.at",
+    "transfer": "-",
+    "notes": "Werte aus der Alpentraversale der Bergschule Watzmann (gleiche Strecke), da im Paket nicht veröffentlicht.",
+    "source": "Bergschule Watzmann, Alpentraversale (berchtesgaden.de)",
+    "travel": false,
+    "row": 8,
+    "points": [
+     {
+      "label": "Glocknerhaus",
+      "queries": [
+       "Glocknerhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Glorer Hütte",
+      "queries": [
+       "Glorer Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Lucknerhaus",
+      "queries": [
+       "Lucknerhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 5,
+    "text": "Lucknerhaus - Villgrater Törl - Dreischusterhütte (1626 m)",
+    "countries": "AT → IT",
+    "hours": 6,
+    "km": 11,
+    "up": 1100,
+    "down": 850,
+    "overnight": "Dreischusterhütte",
+    "hut": "ja",
+    "contact": "drei-schuster-huette.com",
+    "transfer": "Transfers im Paket organisiert",
+    "notes": "-",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen individuell",
+    "travel": false,
+    "row": 9,
+    "points": [
+     {
+      "label": "Lucknerhaus",
+      "queries": [
+       "Lucknerhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Villgrater Törl",
+      "queries": [
+       "Villgrater Törl"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Dreischusterhütte",
+      "queries": [
+       "Dreischusterhütte",
+       "Drei-Schuster-Hütte",
+       "Rifugio Tre Scarperi"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 6,
+    "text": "Dreischusterhütte - Drei Zinnen - Zsigmondyhütte",
+    "countries": "IT",
+    "hours": 6,
+    "km": null,
+    "up": 1150,
+    "down": null,
+    "overnight": "Zsigmondyhütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "Strecke und Abstieg vom Anbieter nicht veröffentlicht.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen individuell",
+    "travel": false,
+    "row": 10,
+    "points": [
+     {
+      "label": "Dreischusterhütte",
+      "queries": [
+       "Dreischusterhütte",
+       "Drei-Schuster-Hütte",
+       "Rifugio Tre Scarperi"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Drei Zinnen",
+      "queries": [
+       "Drei Zinnen",
+       "Tre Cime di Lavaredo"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Zsigmondyhütte",
+      "queries": [
+       "Zsigmondyhütte",
+       "Rifugio Zsigmondy Comici"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 7,
+    "text": "Zsigmondyhütte - Fischleintal - Talschlusshütte",
+    "countries": "IT",
+    "hours": 4,
+    "km": 10,
+    "up": 300,
+    "down": 1050,
+    "overnight": "Heimreise",
+    "hut": "-",
+    "contact": "-",
+    "transfer": "Rückfahrt im Paket nicht beschrieben, beim Anbieter klären",
+    "notes": "Inkl. optionalem morgendlichem Aufstieg.",
+    "source": "Wilde Alpentouren, Königssee - Drei Zinnen individuell",
+    "travel": false,
+    "row": 11,
+    "points": [
+     {
+      "label": "Zsigmondyhütte",
+      "queries": [
+       "Zsigmondyhütte",
+       "Rifugio Zsigmondy Comici"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Fischleintal",
+      "queries": [
+       "Fischleintal"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Talschlusshütte",
+      "queries": [
+       "Talschlusshütte",
+       "Rifugio Fondovalle"
+      ],
+      "tr": false
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "2",
+  "label": "Route 2",
+  "name": "Oberstdorf - Silvretta - Unterengadin - Vinschgau (8 Tage)",
+  "color": "#0072b2",
+  "description": "Tag 1-6 laut Alpinschule Oberstdorf (+49 8322 940 750, info@alpinschule-oberstdorf.de), Tag 7 laut Wilde Alpentouren. 7 Wandertage plus Rückreisetag. Bei Eigenorganisation sind die Transfers selbst zu buchen.",
+  "reported": null,
+  "extraNotes": [],
+  "stages": [
+   {
+    "day": 1,
+    "text": "Birgsau - Einödsbach - Petersalpe - Rappenseehütte (2091 m)",
+    "countries": "DE",
+    "hours": 4,
+    "km": 8,
+    "up": 1120,
+    "down": null,
+    "overnight": "Rappenseehütte",
+    "hut": "ja",
+    "contact": "dav-kempten.de/huetten/rappenseehuette",
+    "transfer": "Bus Oberstdorf - Birgsau",
+    "notes": "-",
+    "source": "Alpinschule Oberstdorf, Oberstdorf - Vinschgau 2027; Wilde Alpentouren (Hütten-Websites)",
+    "travel": false,
+    "row": 5,
+    "points": [
+     {
+      "label": "Birgsau",
+      "queries": [
+       "Birgsau"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Einödsbach",
+      "queries": [
+       "Einödsbach"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Petersalpe",
+      "queries": [
+       "Petersalpe"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Rappenseehütte",
+      "queries": [
+       "Rappenseehütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 2,
+    "text": "Rappenseehütte - Salzbücheljoch - Lechtal; ab Kaisers zum Kaiserjochhaus (2310 m)",
+    "countries": "DE → AT",
+    "hours": 6.5,
+    "km": 11.3,
+    "up": 1000,
+    "down": 950,
+    "overnight": "Kaiserjochhaus",
+    "hut": "ja",
+    "contact": "kaiserjochhaus.at",
+    "transfer": "Transfer Lechtal - Kaisers",
+    "notes": "-",
+    "source": "Alpinschule Oberstdorf, Oberstdorf - Vinschgau 2027; Wilde Alpentouren (Hütten-Websites)",
+    "travel": false,
+    "row": 6,
+    "points": [
+     {
+      "label": "Rappenseehütte",
+      "queries": [
+       "Rappenseehütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Salzbücheljoch",
+      "queries": [
+       "Salzbücheljoch"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Kaisers",
+      "queries": [
+       "Kaisers Tirol",
+       "Kaisers"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kaiserjochhaus",
+      "queries": [
+       "Kaiserjochhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 3,
+    "text": "Kaiserjochhaus - Pettneu; Malfontal - Edmund-Graf-Hütte (2408 m)",
+    "countries": "AT",
+    "hours": 6,
+    "km": 6,
+    "up": 720,
+    "down": 1070,
+    "overnight": "Edmund-Graf-Hütte",
+    "hut": "ja",
+    "contact": "edmund-graf-huette.com",
+    "transfer": "Taxi Pettneu - Malfon Alpe",
+    "notes": "-",
+    "source": "Alpinschule Oberstdorf, Oberstdorf - Vinschgau 2027; Wilde Alpentouren (Hütten-Websites)",
+    "travel": false,
+    "row": 7,
+    "points": [
+     {
+      "label": "Kaiserjochhaus",
+      "queries": [
+       "Kaiserjochhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Pettneu",
+      "queries": [
+       "Pettneu am Arlberg",
+       "Pettneu"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Edmund-Graf-Hütte",
+      "queries": [
+       "Edmund-Graf-Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 4,
+    "text": "Edmund-Graf-Hütte - Rifflerweg - Kappl; Fimbatal - Heidelberger Hütte (2264 m)",
+    "countries": "AT → CH",
+    "hours": 6,
+    "km": 14,
+    "up": 820,
+    "down": 950,
+    "overnight": "Heidelberger Hütte",
+    "hut": "ja",
+    "contact": "heidelbergerhuette.at",
+    "transfer": "Diasbahn; Transfer Kappl - Bodenalpe (Hütte bietet Transport ab Ischgl)",
+    "notes": "Hütte steht auf Schweizer Boden.",
+    "source": "Alpinschule Oberstdorf, Oberstdorf - Vinschgau 2027; Wilde Alpentouren (Hütten-Websites)",
+    "travel": false,
+    "row": 8,
+    "points": [
+     {
+      "label": "Edmund-Graf-Hütte",
+      "queries": [
+       "Edmund-Graf-Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kappl",
+      "queries": [
+       "Kappl Tirol",
+       "Kappl"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Heidelberger Hütte",
+      "queries": [
+       "Heidelberger Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 5,
+    "text": "Heidelberger Hütte - Kronenjoch - Futschölpass - Val Tasna - Ardez",
+    "countries": "CH",
+    "hours": 8,
+    "km": 20,
+    "up": 800,
+    "down": 1500,
+    "overnight": "Scuol (Tal)",
+    "hut": "nein",
+    "contact": "Unterkunft im Ort",
+    "transfer": "Taxi Ardez - Scuol",
+    "notes": "Längste Etappe.",
+    "source": "Alpinschule Oberstdorf, Oberstdorf - Vinschgau 2027",
+    "travel": false,
+    "row": 9,
+    "points": [
+     {
+      "label": "Heidelberger Hütte",
+      "queries": [
+       "Heidelberger Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kronenjoch",
+      "queries": [
+       "Kronenjoch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Futschölpass",
+      "queries": [
+       "Futschölpass"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Ardez",
+      "queries": [
+       "Ardez"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 6,
+    "text": "Sur En - Uinaschlucht - Sesvennahütte",
+    "countries": "CH → IT",
+    "hours": 6,
+    "km": 12.9,
+    "up": 1250,
+    "down": 110,
+    "overnight": "Sesvennahütte",
+    "hut": "ja",
+    "contact": "sesvenna.com",
+    "transfer": "Linienbus Scuol - Sur En",
+    "notes": "-",
+    "source": "Alpinschule Oberstdorf, Oberstdorf - Vinschgau 2027; Wilde Alpentouren (Hütten-Websites)",
+    "travel": false,
+    "row": 10,
+    "points": [
+     {
+      "label": "Sur En",
+      "queries": [
+       "Sur En Sent",
+       "Sur En"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Uinaschlucht",
+      "queries": [
+       "Uinaschlucht",
+       "Uina Schlucht"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Sesvennahütte",
+      "queries": [
+       "Sesvennahütte",
+       "Rifugio Sesvenna"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 7,
+    "text": "Sesvennahütte - Plantapatschhütte - Abtei Marienberg - Burgeis",
+    "countries": "IT",
+    "hours": 5.5,
+    "km": 14,
+    "up": 150,
+    "down": 1200,
+    "overnight": "Burgeis oder Mals (Tal)",
+    "hut": "nein",
+    "contact": "Unterkunft im Ort",
+    "transfer": "-",
+    "notes": "Statt des kurzen Abstiegs nach Schlinig (1,5 h) die längere Panoramaetappe nach Burgeis.",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 11,
+    "points": [
+     {
+      "label": "Sesvennahütte",
+      "queries": [
+       "Sesvennahütte",
+       "Rifugio Sesvenna"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Plantapatschhütte",
+      "queries": [
+       "Plantapatschhütte",
+       "Rifugio Plantapatsch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Abtei Marienberg",
+      "queries": [
+       "Abtei Marienberg",
+       "Kloster Marienberg"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Burgeis",
+      "queries": [
+       "Burgeis"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 8,
+    "text": "Rückreise (keine Wanderung)",
+    "countries": "IT → DE",
+    "hours": 0,
+    "km": 0,
+    "up": null,
+    "down": null,
+    "overnight": "-",
+    "hut": "-",
+    "contact": "-",
+    "transfer": "Bus Mals - Landeck (Linie 273), weiter Richtung Oberstdorf",
+    "notes": "Verbindung Landeck - Oberstdorf im Routenplaner prüfen.",
+    "source": "tt.com",
+    "travel": true,
+    "row": 12,
+    "points": []
+   }
+  ]
+ },
+ {
+  "id": "3",
+  "label": "Route 3",
+  "name": "Allgäu - Vinschgau (8 Tage, Wilde Alpentouren)",
+  "color": "#00916e",
+  "description": "Etappen laut veröffentlichtem Programm der geführten Tour 'einsam nach Süden'. Die Seite der Variante 'Allgäu Vinschgau individuell' (8 Tage, ab 845 EUR) konnte ich nicht abrufen; ob deren Ablauf identisch ist, beim Anbieter klären: 0049 8364 2379980. Laut Anbieter technisch einfache, aber alpine und konditionell fordernde Wege, kurze ausgesetzte und seilversicherte Stellen.",
+  "reported": {
+   "km": 84,
+   "up": 6050,
+   "down": 5250,
+   "source": "Laut Quelle gesamt"
+  },
+  "extraNotes": [
+   "Laut Anbieter auf den meisten Hütten nur Barzahlung: Euro und einige Schweizer Franken (max. 25 CHF) mitnehmen.",
+   "Einkehr und Getränke laut Anbieter ca. 20-30 EUR pro Tag (nicht im Preis enthalten)."
+  ],
+  "stages": [
+   {
+    "day": 1,
+    "text": "Einödsbach - Petersalpe - Enzianhütte - Rappenseehütte (2091 m)",
+    "countries": "DE",
+    "hours": 4,
+    "km": 6,
+    "up": 1000,
+    "down": null,
+    "overnight": "Rappenseehütte",
+    "hut": "ja",
+    "contact": "dav-kempten.de/huetten/rappenseehuette",
+    "transfer": "Bus Oberstdorf - Einödsbach",
+    "notes": "-",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 5,
+    "points": [
+     {
+      "label": "Einödsbach",
+      "queries": [
+       "Einödsbach"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Petersalpe",
+      "queries": [
+       "Petersalpe"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Enzianhütte",
+      "queries": [
+       "Enzianhütte Oberstdorf",
+       "Enzianhütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Rappenseehütte",
+      "queries": [
+       "Rappenseehütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 2,
+    "text": "Rappenseehütte - Rappensee - Salzbücheljoch - Holzgauer Haus; Kaisers - Kaiseralpe - Kaiserjochhaus",
+    "countries": "DE → AT",
+    "hours": 5.5,
+    "km": 12,
+    "up": 900,
+    "down": 700,
+    "overnight": "Kaiserjochhaus",
+    "hut": "ja",
+    "contact": "kaiserjochhaus.at",
+    "transfer": "Transfer durchs Lechtal bis hinter Kaisers",
+    "notes": "Abstieg ins Lechtal teilweise seilversichert.",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 6,
+    "points": [
+     {
+      "label": "Rappenseehütte",
+      "queries": [
+       "Rappenseehütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Salzbücheljoch",
+      "queries": [
+       "Salzbücheljoch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Holzgauer Haus",
+      "queries": [
+       "Holzgauer Haus"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Kaisers",
+      "queries": [
+       "Kaisers Tirol",
+       "Kaisers"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kaiseralpe",
+      "queries": [
+       "Kaiseralpe"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kaiserjochhaus",
+      "queries": [
+       "Kaiserjochhaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 3,
+    "text": "Kaiserjochhaus - Pettneu; Malfontal - Edmund-Graf-Hütte",
+    "countries": "AT",
+    "hours": 5.5,
+    "km": 7.5,
+    "up": 650,
+    "down": 1050,
+    "overnight": "Edmund-Graf-Hütte",
+    "hut": "ja",
+    "contact": "edmund-graf-huette.com",
+    "transfer": "Taxi Pettneu - Malfonalpe",
+    "notes": "-",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 7,
+    "points": [
+     {
+      "label": "Kaiserjochhaus",
+      "queries": [
+       "Kaiserjochhaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Pettneu",
+      "queries": [
+       "Pettneu am Arlberg",
+       "Pettneu"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Edmund-Graf-Hütte",
+      "queries": [
+       "Edmund-Graf-Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 4,
+    "text": "Edmund-Graf-Hütte - Rifflerweg - Schmalzgrubenscharte (2694 m) - Kappl; Fimbatal - Heidelberger Hütte",
+    "countries": "AT → CH",
+    "hours": 6.5,
+    "km": 14,
+    "up": 850,
+    "down": 900,
+    "overnight": "Heidelberger Hütte",
+    "hut": "ja",
+    "contact": "heidelbergerhuette.at",
+    "transfer": "Diasbahn nach Kappl; Transfer zur Bodenalpe",
+    "notes": "-",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 8,
+    "points": [
+     {
+      "label": "Edmund-Graf-Hütte",
+      "queries": [
+       "Edmund-Graf-Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Schmalzgrubenscharte",
+      "queries": [
+       "Schmalzgrubenscharte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kappl",
+      "queries": [
+       "Kappl Tirol",
+       "Kappl"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Heidelberger Hütte",
+      "queries": [
+       "Heidelberger Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 5,
+    "text": "Heidelberger Hütte - Fuorcla Davo Dieu - Piz Davo Lais (3027 m) - Fuorcla Champatsch - Scuol",
+    "countries": "CH",
+    "hours": 7.5,
+    "km": 15,
+    "up": 950,
+    "down": 1050,
+    "overnight": "Ardez: Schorta's Alvetern",
+    "hut": "nein",
+    "contact": "alvetern.ch",
+    "transfer": "Bergbahn nach Scuol; Rhätische Bahn Scuol - Ardez",
+    "notes": "Gipfel weglos über Blockgelände, nur bei Trockenheit. Ohne Gipfel ca. 1,25 h und 200 Hm weniger.",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 9,
+    "points": [
+     {
+      "label": "Heidelberger Hütte",
+      "queries": [
+       "Heidelberger Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Fuorcla Davo Dieu",
+      "queries": [
+       "Fuorcla Davo Dieu"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Piz Davo Lais",
+      "queries": [
+       "Piz Davo Lais"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Fuorcla Champatsch",
+      "queries": [
+       "Fuorcla Champatsch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Scuol",
+      "queries": [
+       "Scuol"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 6,
+    "text": "Uina Dadaint - Uinaschlucht - Schlinigpass (2307 m) - Sesvennahütte",
+    "countries": "CH → IT",
+    "hours": 5,
+    "km": 10,
+    "up": 1150,
+    "down": 350,
+    "overnight": "Sesvennahütte",
+    "hut": "ja",
+    "contact": "sesvenna.com",
+    "transfer": "Transfer Sur En - Uina Dadaint",
+    "notes": "-",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 10,
+    "points": [
+     {
+      "label": "Uina Dadaint",
+      "queries": [
+       "Uina Dadaint"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Uinaschlucht",
+      "queries": [
+       "Uinaschlucht",
+       "Uina Schlucht"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Schlinigpass",
+      "queries": [
+       "Schlinigpass",
+       "Schliniger Pass"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Sesvennahütte",
+      "queries": [
+       "Sesvennahütte",
+       "Rifugio Sesvenna"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 7,
+    "text": "Sesvennahütte - Plantapatschhütte - Abtei Marienberg - Burgeis",
+    "countries": "IT",
+    "hours": 5.5,
+    "km": 14,
+    "up": 150,
+    "down": 1200,
+    "overnight": "Planeil (Gasthof)",
+    "hut": "nein",
+    "contact": "Name im Programm nicht genannt",
+    "transfer": "Bus Burgeis - Planeil",
+    "notes": "Langer Abstieg.",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'",
+    "travel": false,
+    "row": 11,
+    "points": [
+     {
+      "label": "Sesvennahütte",
+      "queries": [
+       "Sesvennahütte",
+       "Rifugio Sesvenna"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Plantapatschhütte",
+      "queries": [
+       "Plantapatschhütte",
+       "Rifugio Plantapatsch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Abtei Marienberg",
+      "queries": [
+       "Abtei Marienberg",
+       "Kloster Marienberg"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Burgeis",
+      "queries": [
+       "Burgeis"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 8,
+    "text": "Rückreise",
+    "countries": "IT → DE",
+    "hours": null,
+    "km": null,
+    "up": null,
+    "down": null,
+    "overnight": "-",
+    "hut": "-",
+    "contact": "-",
+    "transfer": "Beim Veranstalter: Bus über Reschen- und Fernpass nach Oberstdorf",
+    "notes": "Selbst organisiert: Bus Mals - Landeck (Linie 273), weiter Richtung Oberstdorf.",
+    "source": "Wilde Alpentouren, 'Allgäu - Vinschgau - einsam nach Süden'; tt.com",
+    "travel": true,
+    "row": 12,
+    "points": []
+   }
+  ]
+ },
+ {
+  "id": "4",
+  "label": "Route 4",
+  "name": "E5 Oberstdorf - Meran (8 Tage, Variante 'Das Original')",
+  "color": "#8e44ad",
+  "description": "Etappen laut Alpinschule Oberstdorf (Veranstalter: +49 8322 940 750). 7 Wandertage plus Rückreise. Bekannteste Alpenüberquerung, entsprechend voll: laut Wilde Alpentouren wählt etwa die Hälfte aller Alpenüberquerer den E5. Viele kurze Transfers (Busse, Seilbahnen).",
+  "reported": null,
+  "extraNotes": [
+   "Geführt bei der Alpinschule: 1460 EUR (AV-Preis), inkl. 5x Hütte, 2x Hotel/Gasthof mit HP, Transfers und Rückfahrt.",
+   "Die Telefonnummern stammen von einer älteren Sammelseite und sollten vor der Buchung geprüft werden."
+  ],
+  "stages": [
+   {
+    "day": 1,
+    "text": "Spielmannsau - Sperrbachtobel - Kemptner Hütte (1844 m)",
+    "countries": "DE",
+    "hours": 3,
+    "km": 6,
+    "up": 870,
+    "down": null,
+    "overnight": "Kemptner Hütte",
+    "hut": "ja",
+    "contact": "Tel. laut alpenquerung.info, vorab prüfen: +49 170 2390857",
+    "transfer": "Bus Oberstdorf - Spielmannsau",
+    "notes": "Kurzer Anreisetag.",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": false,
+    "row": 5,
+    "points": [
+     {
+      "label": "Spielmannsau",
+      "queries": [
+       "Spielmannsau"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Sperrbachtobel",
+      "queries": [
+       "Sperrbachtobel"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Kemptner Hütte",
+      "queries": [
+       "Kemptner Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 2,
+    "text": "Kemptner Hütte - Mädelejoch (1974 m) - Holzgau; Madau - Memminger Hütte (2242 m)",
+    "countries": "DE → AT",
+    "hours": 6,
+    "km": 14.5,
+    "up": 1030,
+    "down": 990,
+    "overnight": "Memminger Hütte",
+    "hut": "ja",
+    "contact": "Tel. laut alpenquerung.info, vorab prüfen: +43 5634 6208",
+    "transfer": "Kleinbus Holzgau - Madau",
+    "notes": "Laut einer Quelle in der Hochsaison schon im April ausgebucht.",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027; reibungslos.de",
+    "travel": false,
+    "row": 6,
+    "points": [
+     {
+      "label": "Kemptner Hütte",
+      "queries": [
+       "Kemptner Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Mädelejoch",
+      "queries": [
+       "Mädelejoch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Holzgau",
+      "queries": [
+       "Holzgau"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Madau",
+      "queries": [
+       "Madau Holzgau",
+       "Madau"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Memminger Hütte",
+      "queries": [
+       "Memminger Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 3,
+    "text": "Memminger Hütte - Seescharte (2599 m) - Lochbachtal - Zams",
+    "countries": "AT",
+    "hours": 6.5,
+    "km": 13.5,
+    "up": 490,
+    "down": 1900,
+    "overnight": "Zams (Tal)",
+    "hut": "nein",
+    "contact": "Unterkunft im Ort",
+    "transfer": "-",
+    "notes": "Langer Abstieg ins Inntal (1900 Hm). Gehzeit laut Quelle 6-7 h.",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": false,
+    "row": 7,
+    "points": [
+     {
+      "label": "Memminger Hütte",
+      "queries": [
+       "Memminger Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Seescharte",
+      "queries": [
+       "Seescharte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Lochbachtal",
+      "queries": [
+       "Lochbachtal"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Zams",
+      "queries": [
+       "Zams"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 4,
+    "text": "Krahberg - Venet - Goglesalm - Pillermoor; Mittelberg - Braunschweiger Hütte (2760 m)",
+    "countries": "AT",
+    "hours": 6,
+    "km": 13,
+    "up": 1050,
+    "down": 690,
+    "overnight": "Braunschweiger Hütte",
+    "hut": "ja",
+    "contact": "Tel. laut alpenquerung.info, vorab prüfen: +43 664 5353722",
+    "transfer": "Seilbahn Krahberg; Bus Pillermoor - Mittelberg",
+    "notes": "Höchste Übernachtung der Tour.",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": false,
+    "row": 8,
+    "points": [
+     {
+      "label": "Krahberg",
+      "queries": [
+       "Krahberg"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Venet",
+      "queries": [
+       "Venet"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Goglesalm",
+      "queries": [
+       "Goglesalm"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Pillermoor",
+      "queries": [
+       "Pillermoor"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Mittelberg",
+      "queries": [
+       "Mittelberg Pitztal",
+       "Mittelberg"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Braunschweiger Hütte",
+      "queries": [
+       "Braunschweiger Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 5,
+    "text": "Braunschweiger Hütte - Pitztaler Jöchl (2995 m) - Gaislachalm - Zwieselstein; Timmelsjoch - Timmelstal",
+    "countries": "AT → IT",
+    "hours": 6.5,
+    "km": 15,
+    "up": 350,
+    "down": 1700,
+    "overnight": "Gasthof im Passeiertal (Tal)",
+    "hut": "nein",
+    "contact": "Name im Programm nicht genannt",
+    "transfer": "Transfer zur Rettenbachalm; Bus Zwieselstein - Timmelsjoch",
+    "notes": "Variante über das Timmelsjoch statt über den Similaun.",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": false,
+    "row": 9,
+    "points": [
+     {
+      "label": "Braunschweiger Hütte",
+      "queries": [
+       "Braunschweiger Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Pitztaler Jöchl",
+      "queries": [
+       "Pitztaler Jöchl"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Gaislachalm",
+      "queries": [
+       "Gaislachalm"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Zwieselstein",
+      "queries": [
+       "Zwieselstein"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Timmelsjoch",
+      "queries": [
+       "Timmelsjoch"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Timmelstal",
+      "queries": [
+       "Timmelstal"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 6,
+    "text": "Pfandlerhof - Pfandleralm - Hintereggeralm - Gompmalm",
+    "countries": "IT",
+    "hours": 5.5,
+    "km": 8.7,
+    "up": 1100,
+    "down": 400,
+    "overnight": "Gompmalm",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "Transfer zum Pfandlerhof",
+    "notes": "Gehzeit laut Quelle 5-6 h.",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": false,
+    "row": 10,
+    "points": [
+     {
+      "label": "Pfandlerhof",
+      "queries": [
+       "Pfandlerhof"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Pfandleralm",
+      "queries": [
+       "Pfandleralm"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Hintereggeralm",
+      "queries": [
+       "Hintereggeralm"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Gompmalm",
+      "queries": [
+       "Gompmalm",
+       "Gompm Alm"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 7,
+    "text": "Gompmalm - Stafelalm - Taserbahn - Schenna; weiter nach Algund/Meran",
+    "countries": "IT",
+    "hours": 4,
+    "km": 10,
+    "up": 260,
+    "down": 600,
+    "overnight": "Algund/Meran (Tal)",
+    "hut": "nein",
+    "contact": "Unterkunft im Ort",
+    "transfer": "Taserbahn talwärts; Bus Schenna - Algund",
+    "notes": "-",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": false,
+    "row": 11,
+    "points": [
+     {
+      "label": "Gompmalm",
+      "queries": [
+       "Gompmalm",
+       "Gompm Alm"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Stafelalm",
+      "queries": [
+       "Stafelalm"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Taserbahn",
+      "queries": [
+       "Taserbahn",
+       "Taser Seilbahn"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Schenna",
+      "queries": [
+       "Schenna"
+      ],
+      "tr": true
+     },
+     {
+      "label": "Algund",
+      "queries": [
+       "Algund"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 8,
+    "text": "Rückreise (keine Wanderung)",
+    "countries": "IT → DE",
+    "hours": 0,
+    "km": 0,
+    "up": null,
+    "down": null,
+    "overnight": "-",
+    "hut": "-",
+    "contact": "-",
+    "transfer": "Beim Veranstalter: Busrückfahrt nach Oberstdorf. Selbst organisiert im Routenplaner prüfen.",
+    "notes": "-",
+    "source": "Alpinschule Oberstdorf, E5 'Das Original' 2027",
+    "travel": true,
+    "row": 12,
+    "points": []
+   }
+  ]
+ },
+ {
+  "id": "5",
+  "label": "Route 5",
+  "name": "Garmisch/Ehrwald - Stubaier Alpen - Sterzing (9 Tage, Hüttenvariante)",
+  "color": "#7a4b2a",
+  "description": "Variante der Route Garmisch - Brixen von der DAV Sektion Rosenheim. Start in Ehrwald direkt hinter der Grenze (mit der Bahn ab Garmisch). Alle 8 Nächte auf Hütten oder Alpengasthof, durchgehend zu Fuß. Laut Quelle gesamt 145,8 km, 61:30 h, 10.858 Hm Aufstieg, Gesamtschwierigkeit schwer. Ein Tag länger als eure 8 Tage.",
+  "reported": null,
+  "extraNotes": [
+   "Zu Fuß ab Deutschland: Bergwelten beschreibt Garmisch-Partenkirchen - Eibsee - Ehrwald als Trailrunning-Strecke mit 37,2 km und sechs Auf- und Abstiegen. Als Wanderung wären das eher zwei Tage; Daten für Teilstücke habe ich nicht gefunden.",
+   "Die klassische Garmisch - Sterzing-Route (7 Etappen, über 90 km, bis 2200 m) ist leichter, übernachtet aber in Hotels im Tal.",
+   "Anreise laut Quelle mit Zug und Bus über München nach Ehrwald, Rückreise mit dem Zug von Sterzing über den Brenner nach München."
+  ],
+  "stages": [
+   {
+    "day": 1,
+    "text": "Ehrwald - Lehnberghaus",
+    "countries": "AT",
+    "hours": 5.25,
+    "km": 9.7,
+    "up": 1280,
+    "down": 760,
+    "overnight": "Lehnberghaus",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "Bahn Garmisch - Ehrwald",
+    "notes": "T3. Mieminger Kette.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 5,
+    "points": [
+     {
+      "label": "Ehrwald",
+      "queries": [
+       "Ehrwald"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Lehnberghaus",
+      "queries": [
+       "Lehnberghaus"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 2,
+    "text": "Lehnberghaus - Inntal - Peter-Anich-Hütte",
+    "countries": "AT",
+    "hours": 6.5,
+    "km": 28.1,
+    "up": 1290,
+    "down": 560,
+    "overnight": "Peter-Anich-Hütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T2, aber 28 km. ACHTUNG: In einer Nutzerfrage heißt es, die Hütte habe dieses Jahr geschlossen - vorab prüfen.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 6,
+    "points": [
+     {
+      "label": "Lehnberghaus",
+      "queries": [
+       "Lehnberghaus"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Peter-Anich-Hütte",
+      "queries": [
+       "Peter-Anich-Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 3,
+    "text": "Peter-Anich-Hütte - Lüsens",
+    "countries": "AT",
+    "hours": 5.33333333333333,
+    "km": 21.7,
+    "up": 980,
+    "down": 1150,
+    "overnight": "Lüsens (Alpengasthof)",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T3.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 7,
+    "points": [
+     {
+      "label": "Peter-Anich-Hütte",
+      "queries": [
+       "Peter-Anich-Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Lüsens",
+      "queries": [
+       "Lüsens",
+       "Lüsens Alpengasthof"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 4,
+    "text": "Lüsens - Franz-Senn-Hütte",
+    "countries": "AT",
+    "hours": 4.83333333333333,
+    "km": 8.3,
+    "up": 1180,
+    "down": 670,
+    "overnight": "Franz-Senn-Hütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T3.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 8,
+    "points": [
+     {
+      "label": "Lüsens",
+      "queries": [
+       "Lüsens",
+       "Lüsens Alpengasthof"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Franz-Senn-Hütte",
+      "queries": [
+       "Franz-Senn-Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 5,
+    "text": "Franz-Senn-Hütte - Sulzenauhütte",
+    "countries": "AT",
+    "hours": 8.5,
+    "km": 23.1,
+    "up": 1390,
+    "down": 1670,
+    "overnight": "Sulzenauhütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T3 schwer, längste Etappe.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 9,
+    "points": [
+     {
+      "label": "Franz-Senn-Hütte",
+      "queries": [
+       "Franz-Senn-Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Sulzenauhütte",
+      "queries": [
+       "Sulzenauhütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 6,
+    "text": "Sulzenauhütte - Bremer Hütte",
+    "countries": "AT",
+    "hours": 5.25,
+    "km": 10.3,
+    "up": 1090,
+    "down": 860,
+    "overnight": "Bremer Hütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T4 - über eurer T3-Grenze.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 10,
+    "points": [
+     {
+      "label": "Sulzenauhütte",
+      "queries": [
+       "Sulzenauhütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Bremer Hütte",
+      "queries": [
+       "Bremer Hütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 7,
+    "text": "Bremer Hütte - Tribulaunhütte",
+    "countries": "AT → IT",
+    "hours": 4.33333333333333,
+    "km": 8.7,
+    "up": 750,
+    "down": 790,
+    "overnight": "Tribulaunhütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T3. Grenzübergang nach Südtirol.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 11,
+    "points": [
+     {
+      "label": "Bremer Hütte",
+      "queries": [
+       "Bremer Hütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Tribulaunhütte",
+      "queries": [
+       "Tribulaunhütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 8,
+    "text": "Tribulaunhütte - Edelweißhütte",
+    "countries": "IT",
+    "hours": 5.5,
+    "km": 13.8,
+    "up": 760,
+    "down": 1180,
+    "overnight": "Edelweißhütte",
+    "hut": "ja",
+    "contact": "Kein direkter Kontakt recherchiert: Hüttensuche auf alpenvereinaktiv.com/de/huetten",
+    "transfer": "-",
+    "notes": "T3.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 12,
+    "points": [
+     {
+      "label": "Tribulaunhütte",
+      "queries": [
+       "Tribulaunhütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Edelweißhütte",
+      "queries": [
+       "Edelweißhütte"
+      ],
+      "tr": false
+     }
+    ]
+   },
+   {
+    "day": 9,
+    "text": "Edelweißhütte - Sterzing",
+    "countries": "IT",
+    "hours": 4.83333333333333,
+    "km": 12.5,
+    "up": 570,
+    "down": 1510,
+    "overnight": "Heimreise",
+    "hut": "-",
+    "contact": "-",
+    "transfer": "Bahn Sterzing - Brenner - München",
+    "notes": "Etappe ist auf alpenvereinaktiv derzeit als 'geschlossen' markiert - vorab prüfen.",
+    "source": "alpenvereinaktiv.com, DAV Sektion Rosenheim: Alpenüberquerung Ehrwald - Sterzing",
+    "travel": false,
+    "row": 13,
+    "points": [
+     {
+      "label": "Edelweißhütte",
+      "queries": [
+       "Edelweißhütte"
+      ],
+      "tr": false
+     },
+     {
+      "label": "Sterzing",
+      "queries": [
+       "Sterzing",
+       "Vipiteno"
+      ],
+      "tr": false
+     }
+    ]
+   }
+  ]
+ }
+];
+
+/* Optional: Hier exportierte Koordinaten (Button "Koordinaten als JSON exportieren") einfügen,
+   Format {"1.1.0":{"lat":47.5,"lng":13.0,"display":"..."}, ...}. Dann ist keine Netzabfrage nötig. */
+const FIXED_COORDS = {};
+
+/* ---------- Hilfsfunktionen ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => (n === null || n === undefined) ? null : Number(n).toLocaleString("de-DE", {maximumFractionDigits: 2});
+const val = (n, unit) => { const f = fmt(n); return f === null ? '<i>nicht angegeben</i>' : f + (unit ? " " + unit : ""); };
+const txt = v => (v === null || v === undefined || v === "") ? '<i>nicht angegeben</i>' : esc(v);
+function hav(a, b) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+const ALPS = {latMin: 45.6, latMax: 48.0, lngMin: 6.5, lngMax: 14.5};
+const inAlps = p => p.lat >= ALPS.latMin && p.lat <= ALPS.latMax && p.lng >= ALPS.lngMin && p.lng <= ALPS.lngMax;
+
+/* ---------- Karte ---------- */
+const map = L.map("map", {zoomControl: true}).setView([47.1, 11.0], 7);
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'}).addTo(map);
+const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {maxZoom: 17, subdomains: "abc", attribution: 'Karte: &copy; OpenStreetMap-Mitwirkende, SRTM | Darstellung: <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)'});
+L.control.layers({"OpenStreetMap": osm, "OpenTopoMap (Gelände)": topo}, null, {collapsed: true}).addTo(map);
+L.control.scale({metric: true, imperial: false}).addTo(map);
+
+ROUTES.forEach((r, i) => { r.idx = i; r.group = L.layerGroup().addTo(map); r.visible = true; r.gfx = {}; });
+
+/* ---------- Ortsermittlung (Nominatim, Fallback Photon) ---------- */
+const CACHE_KEY = "wr-geocache-v1";
+let cache = {};
+try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "{}") || {}; } catch (e) { cache = {}; }
+const saveCache = () => { try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (e) {} };
+
+let lastNet = 0;
+async function throttle() {
+  const wait = Math.max(0, lastNet + 1100 - Date.now());
+  if (wait) await new Promise(r => setTimeout(r, wait));
+  lastNet = Date.now();
+}
+async function fetchNominatim(q) {
+  await throttle();
+  const u = "https://nominatim.openstreetmap.org/search?" + new URLSearchParams({
+    q, format: "jsonv2", limit: "8", "accept-language": "de", countrycodes: "at,de,it,ch,li",
+    viewbox: [ALPS.lngMin, ALPS.latMax, ALPS.lngMax, ALPS.latMin].join(","), bounded: "1"
+  });
+  const res = await fetch(u);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return (await res.json()).map(o => ({lat: +o.lat, lng: +o.lon, display: o.display_name, kind: o.type, src: "Nominatim"}));
+}
+async function fetchPhoton(q) {
+  await throttle();
+  const u = "https://photon.komoot.io/api/?" + new URLSearchParams({q, limit: "8", bbox: [ALPS.lngMin, ALPS.latMin, ALPS.lngMax, ALPS.latMax].join(",")});
+  const res = await fetch(u);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const j = await res.json();
+  return j.features.map(f => ({lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0],
+    display: [f.properties.name, f.properties.street, f.properties.city || f.properties.county, f.properties.state, f.properties.country].filter(Boolean).join(", "), kind: f.properties.osm_value, src: "Photon"}));
+}
+async function search(q) {
+  if (cache[q]) return cache[q];
+  let out;
+  try { out = await fetchNominatim(q); }
+  catch (e1) { out = await fetchPhoton(q); }   /* wirft bei erneutem Fehler */
+  cache[q] = out; saveCache();
+  return out;
+}
+/* Mehrere Treffer: der Treffer, der dem zuletzt ermittelten Punkt der Route am nächsten liegt. */
+async function geocode(point, anchor) {
+  for (let qi = 0; qi < point.queries.length; qi++) {
+    const q = point.queries[qi];
+    let list;
+    try { list = await search(q); } catch (e) { return {error: "Netzwerkfehler (" + e.message + ")"}; }
+    if (!list.length) continue;
+    let best = list[0];
+    if (anchor) best = list.reduce((a, b) => hav(anchor, b) < hav(anchor, a) ? b : a);
+    return {lat: best.lat, lng: best.lng, display: best.display, kind: best.kind, src: best.src, query: q, qi, hits: list.length};
+  }
+  return {error: "kein Treffer"};
+}
+
+/* ---------- Auflösung aller Punkte ---------- */
+const R = {};   /* pid -> Ergebnis */
+const pid = (r, s, i) => `${r.id}.${s.day}.${i}`;
+let totalPts = 0, donePts = 0, running = false;
+ROUTES.forEach(r => r.stages.forEach(s => s.points.forEach((p, i) => { p.pid = pid(r, s, i); })));
+function countTotal() {
+  let n = 0;
+  ROUTES.forEach(r => r.stages.forEach((s, si) => s.points.forEach((p, i) => {
+    const prev = si > 0 ? r.stages[si - 1].points.slice(-1)[0] : null;
+    if (!(i === 0 && prev && prev.label === p.label)) n++;
+  })));
+  return n;
+}
+async function resolveAll() {
+  running = true; donePts = 0; totalPts = countTotal(); updateStatus();
+  for (const r of ROUTES) {
+    let anchor = null;
+    for (let si = 0; si < r.stages.length; si++) {
+      const s = r.stages[si];
+      for (let i = 0; i < s.points.length; i++) {
+        const p = s.points[i];
+        const prevStage = si > 0 ? r.stages[si - 1] : null;
+        const prevEnd = prevStage && prevStage.points.length ? prevStage.points[prevStage.points.length - 1] : null;
+        if (i === 0 && prevEnd && prevEnd.label === p.label) {   /* gleicher Ort wie Vortagesziel */
+          const pr = R[prevEnd.pid];
+          R[p.pid] = pr && !pr.error ? Object.assign({}, pr, {reused: true}) : (pr || {error: "kein Treffer"});
+        } else if (FIXED_COORDS[p.pid]) {
+          R[p.pid] = Object.assign({fixed: true, query: "(fest eingetragen)", qi: 0}, FIXED_COORDS[p.pid]); donePts++;
+        } else {
+          R[p.pid] = await geocode(p, anchor); donePts++;
+        }
+        if (R[p.pid] && !R[p.pid].error) anchor = R[p.pid];
+        updateStatus();
+      }
+      renderRoute(r);
+    }
+    renderRoute(r); buildLegend();
+  }
+  running = false; updateStatus(); fitVisible(); buildQA();
+}
+
+/* ---------- Etappengeometrie + Plausibilität ---------- */
+function stageGeo(r, s) {
+  const pts = s.points.map(p => ({p, res: R[p.pid]}));
+  const ok = pts.filter(x => x.res && !x.res.error);
+  const segs = []; let last = null, pend = false, walk = 0;
+  pts.forEach(x => {
+    if (x.res && !x.res.error) {
+      if (last) { const d = hav(last.res, x.res); segs.push({a: last.res, b: x.res, tr: pend, d}); if (!pend) walk += d; }
+      last = x; pend = x.p.tr;
+    } else pend = pend || x.p.tr;
+  });
+  const w = [];
+  const missing = pts.filter(x => x.res && x.res.error).map(x => x.p.label);
+  if (missing.length) w.push("Nicht ermittelt: " + missing.join(", "));
+  const alt = ok.filter(x => !x.res.reused && !x.res.fixed && x.res.qi > 0).map(x => x.p.label + " (Ersatzsuche: " + x.res.query + ")");
+  if (alt.length) w.push("Mit Ersatz-Suchbegriff ermittelt: " + alt.join("; "));
+  if (s.km && walk > s.km + 0.5) w.push(`Luftlinie der Wanderabschnitte (${fmt(walk)} km) ist größer als die Excel-Strecke (${fmt(s.km)} km). Entweder wurde ein Ort falsch zugeordnet oder die Excel-Angaben passen nicht zu den Orten.`);
+  ok.forEach(x => { if (!inAlps(x.res)) w.push(x.p.label + ": außerhalb des Alpenraums, vermutlich falsch"); });
+  if (ok.length && ok[0] !== pts[0]) w.push("Startpunkt nicht ermittelt");
+  if (ok.length && ok[ok.length - 1] !== pts[pts.length - 1]) w.push("Zielpunkt nicht ermittelt");
+  return {pts, ok, segs, walk, warnings: w};
+}
+
+/* ---------- Zeichnen ---------- */
+function stagePopup(r, s) {
+  const g = stageGeo(r, s);
+  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  const first = s.points[0], lastp = s.points[s.points.length - 1];
+  const nm = p => p ? esc(p.label) + (R[p.pid] && !R[p.pid].error ? "" : ' <span class="warn">(Ort nicht ermittelt)</span>') : "-";
+  let h = `<div class="pop"><h3 style="color:${r.color}">${esc(r.label)} · Etappe ${s.day}</h3><div class="sub">${esc(r.name)}</div><table>`;
+  h += row("Start", nm(first)) + row("Ziel", nm(lastp)) + row("Etappe laut Excel", txt(s.text)) + row("Länder", txt(s.countries));
+  h += row("Gehzeit", val(s.hours, "h")) + row("Strecke", val(s.km, "km")) + row("Aufstieg", val(s.up, "Hm")) + row("Abstieg", val(s.down, "Hm"));
+  h += row("Übernachtung", txt(s.overnight) + (s.hut ? " (Hütte? " + esc(s.hut) + ")" : "")) + row("Kontakt", txt(s.contact)) + row("Transfer", txt(s.transfer)) + row("Hinweise", txt(s.notes)) + row("Quelle", txt(s.source));
+  h += "</table>";
+  if (g.warnings.length) h += '<div class="w">' + g.warnings.map(esc).join("<br>") + "</div>";
+  if (g.ok.length) {
+    h += '<div class="geo"><b>Kartenpunkte (extern ermittelt, nicht aus der Excel-Datei):</b><br>' + g.ok.map(x =>
+      `${esc(x.p.label)}: ${x.res.lat.toFixed(4)}, ${x.res.lng.toFixed(4)}<br><span>${esc(x.res.display)}</span>`).join("<br>") +
+      "<br>Die Linie ist eine schematische Verbindung der Punkte, nicht der Wanderweg.</div>";
+  } else if (s.travel) h += '<div class="geo">Keine Wanderung, daher keine Darstellung auf der Karte.</div>';
+  return h + "</div>";
+}
+function style(base) { return Object.assign({lineCap: "round"}, base); }
+function renderRoute(r) {
+  r.group.clearLayers(); r.gfx = {};
+  let prevEnd = null;
+  const off = (r.idx - (ROUTES.length - 1) / 2) * 5;
+  const icon = (cls, label) => L.divIcon({className: "", html: `<div class="mk ${cls}" style="--c:${r.color}">${label}</div>`,
+    iconSize: [24, 24], iconAnchor: [12 + off, 12 + off / 2]});
+  r.stages.forEach((s, si) => {
+    const g = stageGeo(r, s);
+    const L0 = r.gfx[s.day] = {lines: []};
+    const pop = () => stagePopup(r, s);
+    const popOpt = {maxWidth: Math.min(350, innerWidth - 70), maxHeight: Math.min(340, innerHeight * 0.4)};
+    const select = () => selectStage(r, s);
+    if (prevEnd && g.ok.length) {
+      const a = prevEnd.res, b = g.ok[0].res;
+      if (hav(a, b) > 0.3) {
+        const gap = L.polyline([a, b], style({color: r.color, weight: 2, opacity: 0.45, dashArray: "1,7"})).addTo(r.group);
+        gap._base = {weight: 2, opacity: 0.45}; (r.gfx.gaps = r.gfx.gaps || []).push(gap);
+        gap.bindTooltip(`${esc(r.label)}: Lücke zwischen Tag ${s.day - 1} und Tag ${s.day} (Transfer oder Zwischenstück laut Excel, keine Wanderstrecke)`, {sticky: true});
+      }
+    }
+    g.segs.forEach(sg => {
+      const base = sg.tr ? {weight: 3, opacity: 0.85, dashArray: "1,7"} : {weight: 4, opacity: 0.9, dashArray: "10,7"};
+      const hit = L.polyline([sg.a, sg.b], {weight: 18, opacity: 0}).addTo(r.group);
+      const ln = L.polyline([sg.a, sg.b], style(Object.assign({color: r.color}, base))).addTo(r.group);
+      ln._base = base; L0.lines.push(ln);
+      [hit, ln].forEach(l => { l.bindPopup(pop, popOpt); l.on("click", select);
+        l.bindTooltip(`${esc(r.label)} · Tag ${s.day}${sg.tr ? " (Transfer)" : ""}`, {sticky: true}); });
+    });
+    g.ok.forEach((x, k) => {
+      const isFirst = x.p === s.points[0], isLast = x.p === s.points[s.points.length - 1];
+      if (isFirst || isLast) return;
+      L.circleMarker(x.res, {radius: 4.5, color: "#fff", weight: 1.5, fillColor: r.color, fillOpacity: 1})
+        .bindTooltip(`${esc(r.label)} · Tag ${s.day}: ${esc(x.p.label)}`).bindPopup(pop, popOpt).on("click", select).addTo(r.group);
+    });
+    if (g.ok.length) {
+      const f = g.ok[0], e = g.ok[g.ok.length - 1];
+      const lastWalk = r.stages.map((x, i) => x.points.length ? i : -1).filter(i => i >= 0).pop() === si;
+      if (f.p === s.points[0] && !f.res.reused) {
+        const mk = L.marker(f.res, {icon: s.day === 1 ? icon("start", "S") : icon("ring", s.day), zIndexOffset: 100}).addTo(r.group);
+        mk.bindTooltip(`${esc(r.label)} · Start Tag ${s.day}: ${esc(f.p.label)}`).bindPopup(pop, popOpt).on("click", select);
+      }
+      if (g.ok.length > 1 || f.res.reused) {
+        const nextReuses = r.stages[si + 1] && r.stages[si + 1].points[0] && R[r.stages[si + 1].points[0].pid] && R[r.stages[si + 1].points[0].pid].reused;
+        const mk = L.marker(e.res, {icon: icon(lastWalk ? "end goal" : "end", s.day), zIndexOffset: 200}).addTo(r.group);
+        mk.bindTooltip(`${esc(r.label)} · Ziel Tag ${s.day}: ${esc(e.p.label)}${nextReuses ? " (zugleich Start Tag " + (s.day + 1) + ")" : ""}${e.p === s.points[s.points.length - 1] ? "" : " (Zielort nicht ermittelt, letzter ermittelter Punkt)"}`)
+          .bindPopup(pop, popOpt).on("click", select);
+      }
+      prevEnd = e;
+    }
+  });
+  if (!r.visible) map.removeLayer(r.group);
+}
+let selected = null;
+function resetStyles() {
+  ROUTES.forEach(r => { Object.keys(r.gfx).forEach(k => (k === "gaps" ? r.gfx.gaps : r.gfx[k].lines).forEach(l => l.setStyle({weight: l._base.weight, opacity: l._base.opacity}))); });
+}
+function selectStage(r, s) {
+  resetStyles(); selected = {r, s};
+  ROUTES.forEach(o => Object.keys(o.gfx).forEach(k => (k === "gaps" ? o.gfx.gaps : o.gfx[k].lines).forEach(l => l.setStyle({opacity: 0.25}))));
+  (r.gfx[s.day] ? r.gfx[s.day].lines : []).forEach(l => { l.setStyle({weight: l._base.weight + 3, opacity: 1}); l.bringToFront(); });
+}
+map.on("popupclose", () => { resetStyles(); selected = null; });
+
+function stageBounds(r, s) {
+  const pts = stageGeo(r, s).ok.map(x => x.res);
+  return pts.length ? L.latLngBounds(pts) : null;
+}
+function fitVisible() {
+  const pts = [];
+  ROUTES.forEach(r => { if (r.visible) r.stages.forEach(s => s.points.forEach(p => { const x = R[p.pid]; if (x && !x.error) pts.push([x.lat, x.lng]); })); });
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), {padding: [30, 30]});
+}
+
+/* ---------- Seitenleiste ---------- */
+function routeSums(r) {
+  const hike = r.stages.filter(s => !s.travel);
+  const sum = k => hike.reduce((a, s) => a + (s[k] || 0), 0);
+  const miss = hike.filter(s => s.km === null || s.up === null || s.down === null).length;
+  return {km: sum("km"), up: sum("up"), down: sum("down"), miss, days: hike.length};
+}
+function buildLegend() {
+  const open = new Set([...document.querySelectorAll(".route.open")].map(e => e.dataset.id));
+  $("legend").innerHTML = ROUTES.map(r => {
+    const t = routeSums(r);
+    const rep = r.reported ? `<br>${esc(r.reported.source)}: ${fmt(r.reported.km)} km, ${fmt(r.reported.up)} Hm auf, ${fmt(r.reported.down)} Hm ab` : "";
+    const items = r.stages.map(s => {
+      const g = stageGeo(r, s);
+      const hasGeo = g.ok.length > 0;
+      const w = g.warnings.length ? ` <span class="w">Hinweis</span>` : "";
+      return `<li data-r="${r.id}" data-d="${s.day}" class="${hasGeo ? "" : "na"}" style="--c:${r.color}"><span class="n">${s.day}</span><span>${esc(s.text)}${hasGeo ? "" : (s.travel ? " (nicht auf der Karte)" : " (Orte nicht ermittelt)")}${w}</span></li>`;
+    }).join("");
+    return `<section class="route ${open.has(r.id) ? "open" : ""}" data-id="${r.id}" style="--c:${r.color}">
+      <div class="rhead"><input type="checkbox" ${r.visible ? "checked" : ""} aria-label="${esc(r.label)} anzeigen">
+      <div class="t"><b>${esc(r.label)}: ${esc(r.name)}</b><small>${t.days} Wandertage, Σ laut Excel-Zeilen ${fmt(t.km)} km, ${fmt(t.up)} Hm auf, ${fmt(t.down)} Hm ab${t.miss ? " (unvollständig: " + t.miss + " Etappe(n) mit fehlenden Werten)" : ""}${rep}</small></div>
+      <button class="tog">Etappen</button></div><ol class="stages">${items}</ol></section>`;
+  }).join("");
+}
+$("legend").addEventListener("click", e => {
+  const sec = e.target.closest(".route"); if (!sec) return;
+  const r = ROUTES.find(x => x.id === sec.dataset.id);
+  if (e.target.matches("input[type=checkbox]")) {
+    r.visible = e.target.checked;
+    r.visible ? map.addLayer(r.group) : map.removeLayer(r.group);
+    return;
+  }
+  if (e.target.matches(".tog")) { sec.classList.toggle("open"); return; }
+  const li = e.target.closest("li");
+  if (li && !li.classList.contains("na")) {
+    const s = r.stages.find(x => x.day === +li.dataset.d);
+    if (!r.visible) { r.visible = true; map.addLayer(r.group); sec.querySelector("input").checked = true; }
+    const b = stageBounds(r, s);
+    if (b) map.fitBounds(b, {padding: [60, 60], maxZoom: 13});
+    selectStage(r, s);
+    const pts = stageGeo(r, s).ok;
+    const at = pts[Math.floor(pts.length / 2)].res;
+    L.popup({maxWidth: Math.min(350, innerWidth - 70), maxHeight: Math.min(340, innerHeight * 0.4)}).setLatLng(at).setContent(stagePopup(r, s)).openOn(map);
+  }
+});
+$("bAll").onclick = () => setAll(true);
+$("bNone").onclick = () => setAll(false);
+$("bFit").onclick = fitVisible;
+function setAll(v) {
+  ROUTES.forEach(r => { r.visible = v; v ? map.addLayer(r.group) : map.removeLayer(r.group); });
+  document.querySelectorAll(".rhead input").forEach(i => i.checked = v);
+  if (v) fitVisible();
+}
+function updateStatus() {
+  $("stxt").textContent = running ? `Orte werden über OpenStreetMap ermittelt: ${donePts} von ${totalPts} (ca. 1 Abfrage pro Sekunde, ergebnisse werden im Browser zwischengespeichert)` :
+    `Fertig: ${Object.values(R).filter(x => x && !x.error).length} Kartenpunkte ermittelt, ${Object.values(R).filter(x => x && x.error).length} nicht gefunden.`;
+  $("bar").firstElementChild.style.width = (totalPts ? Math.min(100, donePts / totalPts * 100) : 0) + "%";
+}
+function buildQA() {
+  const items = [];
+  const nStages = ROUTES.reduce((a, r) => a + r.stages.length, 0);
+  items.push(`Routen: ${ROUTES.length} Blätter (${ROUTES.map(r => r.label).join(", ")})`);
+  items.push(`Etappen aus der Excel-Datei: ${nStages} (${ROUTES.map(r => r.label.replace("Route ", "R") + ": " + r.stages.length).join(", ")})`);
+  items.push("Etappenreihenfolge je Route: Tagesnummern lückenlos aufsteigend (geprüft)");
+  items.push("Koordinaten in der Excel-Datei: keine vorhanden, alle Kartenpunkte stammen aus der Ortssuche und liegen im Suchfenster Alpenraum (Lat 45,6 bis 48,0; Lng 6,5 bis 14,5). Lat und Lng werden nicht getauscht, da die Quelle Lat/Lon getrennt liefert.");
+  const warn = [];
+  ROUTES.forEach(r => r.stages.forEach(s => { const g = stageGeo(r, s); g.warnings.forEach(w => warn.push(`${r.label}, Tag ${s.day}: ${w}`)); }));
+  ROUTES.forEach(r => { if (r.reported) { const t = routeSums(r);
+    if (Math.abs(t.km - r.reported.km) > 0.5) warn.push(`${r.label}: Summe der Etappen ${fmt(t.km)} km, ${esc(r.reported.source)} ${fmt(r.reported.km)} km (fehlende Etappenwerte).`); } });
+  $("qabody").innerHTML = "<ul>" + items.map(i => `<li>${esc(i)}</li>`).join("") + "</ul>" +
+    `<b class="warn">${warn.length} Hinweise</b><ul>` + warn.map(w => `<li class="warn">${esc(w)}</li>`).join("") + "</ul>";
+  buildLegend();
+}
+$("bExport").onclick = () => {
+  const out = {};
+  Object.keys(R).forEach(k => { const x = R[k]; if (x && !x.error) out[k] = {lat: x.lat, lng: x.lng, display: x.display}; });
+  const blob = new Blob([JSON.stringify(out, null, 1)], {type: "application/json"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "wanderrouten-koordinaten.json"; a.click();
+};
+$("bReset").onclick = () => { try { localStorage.removeItem(CACHE_KEY); } catch (e) {} location.reload(); };
+
+buildLegend();
+resolveAll().catch(e => { running = false; $("stxt").textContent = "Fehler: " + e.message; });
+</script>
+</body>
+</html>
