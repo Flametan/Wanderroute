@@ -43,6 +43,9 @@ details{margin:10px 0;border:1px solid var(--line);border-radius:6px;padding:6px
 summary{cursor:pointer;font-weight:600}
 details ul{margin:6px 0 0;padding-left:18px}
 .warn{color:var(--warn)}
+.vd{width:14px;height:14px;border-radius:50%;background:var(--c);border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.6)}
+.leaflet-marker-draggable{cursor:grab}
+.pop button{margin:2px 0;font-size:12px}
 .mk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:700 12px system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45)}
 .mk.end{background:var(--c);color:#fff;border:2px solid #fff}
 .mk.goal{border-radius:6px;border:2px solid #fff;outline:2px solid var(--c)}
@@ -67,7 +70,7 @@ details ul{margin:6px 0 0;padding-left:18px}
 <div class="app">
   <aside id="side">
     <h1>Alpenüberquerungen</h1>
-    <p class="lead">Sechs Routenblätter aus der Excel-Datei "Alpenueberquerung_3_Routen_1.xlsx". Etappendaten stammen aus der Excel-Datei. Die Excel-Datei enthält keine Koordinaten: Die Kartenpunkte werden beim Öffnen anhand der Ortsnamen über OpenStreetMap (Nominatim) ermittelt. Alle Linien sind schematisch und zeigen nicht den tatsächlichen Wanderweg.</p>
+    <p class="lead">Sechs Routenblätter aus der Excel-Datei "Alpenueberquerung_3_Routen_1.xlsx". Etappendaten stammen aus der Excel-Datei. Die Excel-Datei enthält keine Koordinaten: Die Kartenpunkte werden beim Öffnen anhand der Ortsnamen über OpenStreetMap (Nominatim) ermittelt. Alle Linien sind schematisch und zeigen nicht den tatsächlichen Wanderweg. Jeder Punkt lässt sich per Drag &amp; Drop verschieben; die Änderungen bleiben im Browser gespeichert.</p>
     <div id="status"><span id="stxt">Starte ...</span><div id="bar"><i></i></div></div>
     <div class="btns">
       <button id="bAll">Alle Routen einblenden</button>
@@ -86,6 +89,9 @@ details ul{margin:6px 0 0;padding-left:18px}
     </div>
     <details id="qa"><summary>Datenprüfung</summary><div id="qabody"></div></details>
     <div class="btns">
+      <label style="display:flex;align-items:center;gap:6px;flex-basis:100%"><input type="checkbox" id="cEdit" checked> Punkte per Drag &amp; Drop verschieben</label>
+      <button id="bImport">Koordinaten importieren</button><input type="file" id="fImport" accept="application/json" hidden>
+      <button id="bManualReset">Eigene Änderungen verwerfen</button>
       <button id="bExport">Koordinaten als JSON exportieren</button>
       <button id="bReset">Cache löschen, neu ermitteln</button>
     </div>
@@ -2332,8 +2338,30 @@ async function candidates(node) {
    - Übergang zwischen Etappen (Ziel Vortag zu Start): Entfernung zählt wenig
    - Rang des Treffers und Ersatz-Suchbegriffe kosten etwas */
 const R = {};   /* pid -> Ergebnis */
+const LINK = {};   /* pid -> alle pids, die denselben Ort teilen (Ziel Vortag = Start Folgetag) */
+const PT = {};     /* pid -> {r, s, p} */
+let editMode = true;
+const MANUAL_KEY = "wr-manual-v1";
+let MANUAL = {};
+try { MANUAL = JSON.parse(localStorage.getItem(MANUAL_KEY) || "{}") || {}; } catch (e) { MANUAL = {}; }
+const saveManual = () => { try { localStorage.setItem(MANUAL_KEY, JSON.stringify(MANUAL)); } catch (e) {} };
 let totalPts = 0, donePts = 0, running = false;
-ROUTES.forEach(r => r.stages.forEach(s => s.points.forEach((p, i) => { p.pid = `${r.id}.${s.day}.${i}`; })));
+ROUTES.forEach(r => r.stages.forEach(s => s.points.forEach((p, i) => { p.pid = `${r.id}.${s.day}.${i}`; PT[p.pid] = {r, s, p}; })));
+/* Punkt von Hand setzen (Drag & Drop oder Klick auf die Karte): gilt für alle Etappen, die diesen Ort teilen */
+function setManual(pidv, ll) {
+  const ids = LINK[pidv] || [pidv];
+  ids.forEach((id, k) => {
+    MANUAL[id] = {lat: +ll.lat.toFixed(6), lng: +(ll.lng !== undefined ? ll.lng : ll.lon).toFixed(6)};
+    R[id] = {lat: MANUAL[id].lat, lng: MANUAL[id].lng, display: "von Hand gesetzt", src: "manuell", query: "(manuell)", qi: 0, rank: 0, hits: 1, manual: true, reused: k > 0};
+  });
+  saveManual();
+  return ids;
+}
+function afterEdit(ids) {
+  const touched = new Set(ids.map(id => PT[id].r));
+  touched.forEach(renderRoute); buildLegend(); buildQA();
+}
+function movePoint(r, p, ll) { afterEdit(setManual(p.pid, ll)); }
 function buildChain(r) {
   const nodes = []; let prev = null;
   r.stages.forEach(s => s.points.forEach((p, i) => {
@@ -2380,13 +2408,16 @@ async function resolveAll() {
   for (const r of ROUTES) {
     const nodes = buildChain(r);
     for (const n of nodes) {
+      const man = n.pids.map(id => MANUAL[id]).find(Boolean);
       const fixed = FIXED_COORDS[n.pids[0]];
+      if (man) n.cands = [{lat: man.lat, lng: man.lng, display: "von Hand gesetzt", kind: "", src: "manuell", query: "(manuell)", qi: 0, rank: 0, hits: 1, manual: true}];
+      else
       if (fixed) n.cands = [Object.assign({lat: 0, lng: 0, display: "", kind: "", src: "fest", query: "(fest eingetragen)", qi: 0, rank: 0, hits: 1, fixed: true}, fixed)];
       else { const c = await candidates(n); if (c.list) n.cands = c.list; else n.err = c.error; }
       donePts++; updateStatus();
     }
     solveChain(nodes);
-    nodes.forEach(n => n.pids.forEach((id, k) => {
+    nodes.forEach(n => n.pids.forEach((id, k) => { LINK[id] = n.pids;
       R[id] = n.chosen ? Object.assign({}, n.chosen, {reused: k > 0}) : {error: n.err || "kein Treffer"};
     }));
     r.stages.forEach(() => {}); renderRoute(r); buildLegend();
@@ -2428,6 +2459,8 @@ function stagePopup(r, s) {
   h += row("Gehzeit", val(s.hours, "h")) + row("Strecke", val(s.km, "km")) + row("Aufstieg", val(s.up, "Hm")) + row("Abstieg", val(s.down, "Hm"));
   h += row("Übernachtung", txt(s.overnight) + (s.hut ? " (Hütte? " + esc(s.hut) + ")" : "")) + row("Kontakt", txt(s.contact)) + row("Transfer", txt(s.transfer)) + row("Hinweise", txt(s.notes)) + row("Quelle", txt(s.source));
   h += "</table>";
+  const unresolved = s.points.filter(p => R[p.pid] && R[p.pid].error);
+  if (unresolved.length) h += '<div class="geo">' + unresolved.map(p => `<button data-place="${esc(p.pid)}">"${esc(p.label)}" auf der Karte setzen</button>`).join(" ") + "</div>";
   if (g.warnings.length) h += '<div class="w">' + g.warnings.map(esc).join("<br>") + "</div>";
   if (g.ok.length) {
     h += '<div class="geo"><b>Kartenpunkte (extern ermittelt, nicht aus der Excel-Datei):</b><br>' + g.ok.map(x =>
@@ -2443,6 +2476,13 @@ function renderRoute(r) {
   const off = (r.idx - (ROUTES.length - 1) / 2) * 5;
   const icon = (cls, label) => L.divIcon({className: "", html: `<div class="mk ${cls}" style="--c:${r.color}">${label}</div>`,
     iconSize: [24, 24], iconAnchor: [12 + off, 12 + off / 2]});
+  const dotIcon = L.divIcon({className: "", html: `<div class="vd" style="--c:${r.color}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7]});
+  /* Marker eines Punktes; verschiebbar, solange der Bearbeitungsmodus an ist */
+  const mkr = (p, ll, ic, z) => {
+    const m = L.marker(ll, {icon: ic, zIndexOffset: z, draggable: editMode, autoPan: true}).addTo(r.group);
+    m.on("dragend", () => movePoint(r, p, m.getLatLng()));
+    return m;
+  };
   r.stages.forEach((s, si) => {
     const g = stageGeo(r, s);
     const L0 = r.gfx[s.day] = {lines: []};
@@ -2468,19 +2508,18 @@ function renderRoute(r) {
     g.ok.forEach((x, k) => {
       const isFirst = x.p === s.points[0], isLast = x.p === s.points[s.points.length - 1];
       if (isFirst || isLast) return;
-      L.circleMarker(x.res, {radius: 4.5, color: "#fff", weight: 1.5, fillColor: r.color, fillOpacity: 1})
-        .bindTooltip(`${esc(r.label)} · Tag ${s.day}: ${esc(x.p.label)}`).bindPopup(pop, popOpt).on("click", select).addTo(r.group);
+      mkr(x.p, x.res, dotIcon, 50).bindTooltip(`${esc(r.label)} · Tag ${s.day}: ${esc(x.p.label)}`).bindPopup(pop, popOpt).on("click", select);
     });
     if (g.ok.length) {
       const f = g.ok[0], e = g.ok[g.ok.length - 1];
       const lastWalk = r.stages.map((x, i) => x.points.length ? i : -1).filter(i => i >= 0).pop() === si;
       if (f.p === s.points[0] && !f.res.reused) {
-        const mk = L.marker(f.res, {icon: s.day === 1 ? icon("start", "S") : icon("ring", s.day), zIndexOffset: 100}).addTo(r.group);
+        const mk = mkr(f.p, f.res, s.day === 1 ? icon("start", "S") : icon("ring", s.day), 100);
         mk.bindTooltip(`${esc(r.label)} · Start Tag ${s.day}: ${esc(f.p.label)}`).bindPopup(pop, popOpt).on("click", select);
       }
       if (g.ok.length > 1 || f.res.reused) {
         const nextReuses = r.stages[si + 1] && r.stages[si + 1].points[0] && R[r.stages[si + 1].points[0].pid] && R[r.stages[si + 1].points[0].pid].reused;
-        const mk = L.marker(e.res, {icon: icon(lastWalk ? "end goal" : "end", s.day), zIndexOffset: 200}).addTo(r.group);
+        const mk = mkr(e.p, e.res, icon(lastWalk ? "end goal" : "end", s.day), 200);
         mk.bindTooltip(`${esc(r.label)} · Ziel Tag ${s.day}: ${esc(e.p.label)}${nextReuses ? " (zugleich Start Tag " + (s.day + 1) + ")" : ""}${e.p === s.points[s.points.length - 1] ? "" : " (Zielort nicht ermittelt, letzter ermittelter Punkt)"}`)
           .bindPopup(pop, popOpt).on("click", select);
       }
@@ -2498,6 +2537,18 @@ function selectStage(r, s) {
   ROUTES.forEach(o => Object.keys(o.gfx).forEach(k => (k === "gaps" ? o.gfx.gaps : o.gfx[k].lines).forEach(l => l.setStyle({opacity: 0.25}))));
   (r.gfx[s.day] ? r.gfx[s.day].lines : []).forEach(l => { l.setStyle({weight: l._base.weight + 3, opacity: 1}); l.bringToFront(); });
 }
+let placing = null;
+map.on("popupopen", e => {
+  e.popup.getElement().querySelectorAll("button[data-place]").forEach(b => b.onclick = () => {
+    placing = b.dataset.place; map.closePopup(); map.getContainer().style.cursor = "crosshair";
+    $("stxt").textContent = `Klicke auf die Karte, um "${PT[placing].p.label}" zu setzen.`;
+  });
+});
+map.on("click", e => {
+  if (!placing) return;
+  const id = placing; placing = null; map.getContainer().style.cursor = ""; updateStatus();
+  afterEdit(setManual(id, e.latlng));
+});
 map.on("popupclose", () => { resetStyles(); selected = null; });
 
 function stageBounds(r, s) {
@@ -2588,6 +2639,16 @@ $("bExport").onclick = () => {
   Object.keys(R).forEach(k => { const x = R[k]; if (x && !x.error) out[k] = {lat: x.lat, lng: x.lng, display: x.display}; });
   const blob = new Blob([JSON.stringify(out, null, 1)], {type: "application/json"});
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "wanderrouten-koordinaten.json"; a.click();
+};
+$("cEdit").onchange = e => { editMode = e.target.checked; ROUTES.forEach(renderRoute); };
+$("bManualReset").onclick = () => { if (confirm("Alle von Hand gesetzten Punkte verwerfen?")) { try { localStorage.removeItem(MANUAL_KEY); } catch (e) {} location.reload(); } };
+$("bImport").onclick = () => $("fImport").click();
+$("fImport").onchange = async e => {
+  try {
+    const j = JSON.parse(await e.target.files[0].text()); let n = 0;
+    Object.keys(j).forEach(k => { if (PT[k] && isFinite(j[k].lat) && isFinite(j[k].lng)) { MANUAL[k] = {lat: +j[k].lat, lng: +j[k].lng}; n++; } });
+    saveManual(); alert(n + " Punkte importiert, Seite lädt neu."); location.reload();
+  } catch (err) { alert("Datei konnte nicht gelesen werden: " + err.message); }
 };
 $("bReset").onclick = () => { try { localStorage.removeItem(CACHE_KEY); } catch (e) {} location.reload(); };
 
