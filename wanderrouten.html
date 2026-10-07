@@ -2253,11 +2253,15 @@ const inAlps = p => p.lat >= ALPS.latMin && p.lat <= ALPS.latMax && p.lng >= ALP
 
 /* ---------- Karte ---------- */
 const map = L.map("map", {zoomControl: true}).setView([47.1, 11.0], 7);
-const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {maxZoom: 19, subdomains: "abcd", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+const esriAttr = 'Karte: &copy; Esri, HERE, Garmin, FAO, NOAA, USGS, OpenStreetMap-Mitwirkende';
+const esri = (name, max) => L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/" + name + "/MapServer/tile/{z}/{y}/{x}", {maxZoom: max, attribution: esriAttr});
+const esriTopo = esri("World_Topo_Map", 18).addTo(map);
+const esriStreet = esri("World_Street_Map", 18);
+const esriSat = esri("World_Imagery", 18);
 /* Der Standard-OSM-Kachelserver sperrt Seiten, die als Datei (file://) geöffnet werden. Er funktioniert nur, wenn die Seite über http(s) ausgeliefert wird. */
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'});
 const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {maxZoom: 17, subdomains: "abc", attribution: 'Karte: &copy; OpenStreetMap-Mitwirkende, SRTM | Darstellung: <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)'});
-L.control.layers({"OSM-Daten (CARTO Voyager)": carto, "OpenStreetMap-Standard (nur über http)": osm, "OpenTopoMap (Gelände)": topo}, null, {collapsed: true}).addTo(map);
+L.control.layers({"Esri Topografie": esriTopo, "Esri Straßenkarte": esriStreet, "Esri Luftbild": esriSat, "OpenTopoMap (Gelände)": topo, "OpenStreetMap-Standard (nur über http)": osm}, null, {collapsed: true}).addTo(map);
 L.control.scale({metric: true, imperial: false}).addTo(map);
 
 ROUTES.forEach((r, i) => { r.idx = i; r.group = L.layerGroup().addTo(map); r.visible = true; r.gfx = {}; });
